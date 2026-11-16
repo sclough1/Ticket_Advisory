@@ -1,0 +1,2540 @@
+<!DOCTYPE html>
+<html lang="en"><head><base href="https://281924611-atari-embeds.googleusercontent.com/embeds/9a0a136a6ed5f92b1c914a0fb8b81cd6/inner-frame-minified.html?jsh=m%3B%2F_%2Fscs%2Fabc-static%2F_%2Fjs%2Fk%3Dgapi.lb.en.smUXTMp7CeY.O%2Fd%3D1%2Frs%3DAHpOoo_-UMASGI-dbLvJPxfO6N46l3l46A%2Fm%3D__features__" target="_blank">
+      <script>
+        (function() {
+          if (window.__atariInitRender) {
+            window.__atariInitRender(false);
+            return;
+          }
+          var isLiquid = false;
+          var guardsInstalled = false;
+          var LOCAL_DOWNLOAD_URL_RE = /^(?:blob|data):/i;
+          var PROTOCOL_RELATIVE_RE = /^[\/\\]{2}/;
+          var FORBIDDEN_TAG_RE = /^(?:iframe|frame|object|embed)$/i;
+          var XLINK_NS = 'http://www.w3.org/1999/xlink';
+          var origPreventDefault = Event.prototype.preventDefault;
+          var origStopPropagation = Event.prototype.stopPropagation;
+          var origStopImmediatePropagation =
+              Event.prototype.stopImmediatePropagation;
+          var origAddEventListener = EventTarget.prototype.addEventListener;
+          var origRemoveEventListener =
+              EventTarget.prototype.removeEventListener;
+          var origWindowStop = window.stop ? window.stop.bind(window) : null;
+          var origElementRemove = Element.prototype.remove;
+          var origGetAttribute = Element.prototype.getAttribute;
+          var origGetAttributeNS = Element.prototype.getAttributeNS;
+          var origHasAttribute = Element.prototype.hasAttribute;
+          var origHasAttributeNS = Element.prototype.hasAttributeNS;
+          var origSetAttribute = Element.prototype.setAttribute;
+          var origSetAttributeNS = Element.prototype.setAttributeNS;
+          var origSetAttributeNode = Element.prototype.setAttributeNode;
+          var origSetAttributeNodeNS = Element.prototype.setAttributeNodeNS;
+          var origRemoveAttribute = Element.prototype.removeAttribute;
+          var origRemoveAttributeNS = Element.prototype.removeAttributeNS;
+          var origComposedPath = Event.prototype.composedPath;
+          var origCreateElement = Document.prototype.createElement;
+          var origCreateElementNS = Document.prototype.createElementNS;
+          var validatingEvents =
+              typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+          var activeDeferredListeners = null;
+          var inProgrammaticClick = 0;
+
+          function isLinkElement(el) {
+            var tag = el && el.tagName && el.tagName.toLowerCase();
+            return tag === 'a' || tag === 'area';
+          }
+
+          function hasLinkHref(link) {
+            return origHasAttribute.call(link, 'href') ||
+                origHasAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          // Returns the href of an HTML or SVG link, which may only have the
+          // legacy xlink:href attribute.
+          function getLinkHref(link) {
+            return origGetAttribute.call(link, 'href') ||
+                origGetAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          function removeLinkHref(link) {
+            origRemoveAttribute.call(link, 'href');
+            origRemoveAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          // Returns whether the link downloads a file that the app created,
+          // which doesn't send data to other sites.
+          function isLocalDownloadLink(link, href) {
+            return origHasAttribute.call(link, 'download') &&
+                LOCAL_DOWNLOAD_URL_RE.test(href);
+          }
+
+          function isRefreshValue(val) {
+            return String(val || '').trim().toLowerCase() === 'refresh';
+          }
+
+          function purgeMetaRefresh(root) {
+            if (!root || !root.querySelectorAll) return;
+            var metas = root.querySelectorAll('meta[http-equiv]');
+            for (var i = 0; i < metas.length; i++) {
+              if (isRefreshValue(
+                  origGetAttribute.call(metas[i], 'http-equiv'))) {
+                origElementRemove.call(metas[i]);
+              }
+            }
+            var frames = root.querySelectorAll('iframe, frame, object, embed');
+            for (var j = 0; j < frames.length; j++) {
+              origElementRemove.call(frames[j]);
+            }
+          }
+
+          function getParentOrHost(node) {
+            if (!node) return null;
+            if (node.parentElement) return node.parentElement;
+            var parent = node.parentNode;
+            return parent && parent.host ? parent.host : null;
+          }
+
+          function findLinkFromNode(startNode, requireHref) {
+            var el = startNode;
+            while (el && el !== document) {
+              if (isLinkElement(el) && (!requireHref || hasLinkHref(el))) {
+                return el;
+              }
+              el = getParentOrHost(el);
+            }
+            return null;
+          }
+
+          function findLinkFromEvent(e) {
+            if (origComposedPath) {
+              try {
+                var path = origComposedPath.call(e);
+                for (var i = 0; i < path.length; i++) {
+                  var node = path[i];
+                  if (isLinkElement(node) && hasLinkHref(node)) {
+                    return node;
+                  }
+                }
+              } catch (err) {}
+            }
+            return findLinkFromNode(e.target, true);
+          }
+
+          // Keeps the app from opening popups, navigating its frame, and
+          // adding meta refresh tags. document.open() keeps the window, its
+          // prototypes, and the document, so these are installed once per
+          // frame rather than on every render.
+          function installNavigationGuards() {
+            try {
+              Object.defineProperty(window, 'open', {
+                value: function() {
+                  return null;
+                },
+                writable: false,
+                configurable: false
+              });
+            } catch (err) {
+              window.open = function() {
+                return null;
+              };
+            }
+            if (window.navigation && window.navigation.addEventListener) {
+              origAddEventListener.call(
+                  window.navigation, 'navigate', function(e) {
+                    if (!e.cancelable || e.destination.sameDocument) return;
+                    if (e.downloadRequest !== null &&
+                        LOCAL_DOWNLOAD_URL_RE.test(e.destination.url)) {
+                      return;
+                    }
+                    origPreventDefault.call(e);
+                  }, true);
+            }
+            var iframeWinDesc = typeof HTMLIFrameElement !== 'undefined' &&
+                Object.getOwnPropertyDescriptor(
+                    HTMLIFrameElement.prototype, 'contentWindow');
+            if (iframeWinDesc && iframeWinDesc.get) {
+              Object.defineProperty(
+                  HTMLIFrameElement.prototype, 'contentWindow', {
+                    get: function() {
+                      return null;
+                    },
+                    configurable: false,
+                    enumerable: true
+                  });
+            }
+            var iframeDocDesc = typeof HTMLIFrameElement !== 'undefined' &&
+                Object.getOwnPropertyDescriptor(
+                    HTMLIFrameElement.prototype, 'contentDocument');
+            if (iframeDocDesc && iframeDocDesc.get) {
+              Object.defineProperty(
+                  HTMLIFrameElement.prototype, 'contentDocument', {
+                    get: function() {
+                      return null;
+                    },
+                    configurable: false,
+                    enumerable: true
+                  });
+            }
+            Document.prototype.createElement = function(tagName, options) {
+              if (FORBIDDEN_TAG_RE.test(String(tagName || ''))) {
+                return origCreateElement.call(this, 'div', options);
+              }
+              return origCreateElement.apply(this, arguments);
+            };
+            if (origCreateElementNS) {
+              Document.prototype.createElementNS = function(ns, qName, opts) {
+                var local = String(qName || '').split(':').pop();
+                if (FORBIDDEN_TAG_RE.test(local)) {
+                  return origCreateElement.call(this, 'div');
+                }
+                return origCreateElementNS.apply(this, arguments);
+              };
+            }
+            var origClick = HTMLElement.prototype.click;
+            HTMLElement.prototype.click = function() {
+              var link = findLinkFromNode(this, true);
+              if (link) {
+                var clickHref = (getLinkHref(link) || '').trim();
+                if (!clickHref.startsWith('#') &&
+                    !isLocalDownloadLink(link, clickHref)) {
+                  return;
+                }
+              }
+              inProgrammaticClick++;
+              try {
+                return origClick.apply(this, arguments);
+              } finally {
+                inProgrammaticClick--;
+              }
+            };
+            function isMetaRefreshAttr(el, name, value) {
+              return el && el.tagName &&
+                  el.tagName.toLowerCase() === 'meta' &&
+                  String(name || '').trim().toLowerCase() === 'http-equiv' &&
+                  isRefreshValue(value);
+            }
+            function validateIfActiveLink(el) {
+              if (!activeDeferredListeners || !isLinkElement(el) ||
+                  !hasLinkHref(el)) {
+                return;
+              }
+              var curHref = (getLinkHref(el) || '').trim();
+              if (!curHref.startsWith('#')) {
+                handleLiquidExternalLink(
+                    activeDeferredListeners.event, el, curHref,
+                    activeDeferredListeners.programmatic);
+              }
+            }
+            Element.prototype.setAttribute = function(name, value) {
+              if (isMetaRefreshAttr(this, name, value)) {
+                origElementRemove.call(this);
+                return;
+              }
+              var res = origSetAttribute.apply(this, arguments);
+              if (String(name || '').toLowerCase() === 'href') {
+                validateIfActiveLink(this);
+              }
+              return res;
+            };
+            if (origSetAttributeNS) {
+              Element.prototype.setAttributeNS = function(ns, name, value) {
+                var local = String(name || '');
+                if (local.includes(':')) local = local.split(':').pop();
+                if (isMetaRefreshAttr(this, local, value)) {
+                  origElementRemove.call(this);
+                  return;
+                }
+                var res = origSetAttributeNS.apply(this, arguments);
+                if (local.toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            if (origSetAttributeNode) {
+              Element.prototype.setAttributeNode = function(attr) {
+                if (attr && isMetaRefreshAttr(this, attr.name, attr.value)) {
+                  origElementRemove.call(this);
+                  return null;
+                }
+                var res = origSetAttributeNode.apply(this, arguments);
+                if (attr && String(attr.name || '').toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            if (origSetAttributeNodeNS) {
+              Element.prototype.setAttributeNodeNS = function(attr) {
+                var name = attr && (attr.localName || attr.name);
+                if (attr && isMetaRefreshAttr(this, name, attr.value)) {
+                  origElementRemove.call(this);
+                  return null;
+                }
+                var res = origSetAttributeNodeNS.apply(this, arguments);
+                if (String(name || '').toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            function wrapHrefSetter(ctor) {
+              if (!ctor || !ctor.prototype) return;
+              var hrefDesc = Object.getOwnPropertyDescriptor(
+                  ctor.prototype, 'href');
+              if (hrefDesc && hrefDesc.set) {
+                Object.defineProperty(ctor.prototype, 'href', {
+                  get: hrefDesc.get,
+                  set: function(value) {
+                    hrefDesc.set.call(this, value);
+                    validateIfActiveLink(this);
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            }
+            if (typeof HTMLAnchorElement !== 'undefined') {
+              wrapHrefSetter(HTMLAnchorElement);
+            }
+            if (typeof HTMLAreaElement !== 'undefined') {
+              wrapHrefSetter(HTMLAreaElement);
+            }
+            if (typeof HTMLMetaElement !== 'undefined') {
+              var desc = Object.getOwnPropertyDescriptor(
+                  HTMLMetaElement.prototype, 'httpEquiv');
+              if (desc && desc.set) {
+                Object.defineProperty(HTMLMetaElement.prototype, 'httpEquiv', {
+                  get: desc.get,
+                  set: function(value) {
+                    if (isRefreshValue(value)) {
+                      origElementRemove.call(this);
+                      return;
+                    }
+                    desc.set.call(this, value);
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            }
+            Event.prototype.stopPropagation = function() {
+              if (validatingEvents && validatingEvents.has(this)) {
+                return;
+              }
+              return origStopPropagation.apply(this, arguments);
+            };
+            Event.prototype.stopImmediatePropagation = function() {
+              if (validatingEvents && validatingEvents.has(this)) {
+                return;
+              }
+              return origStopImmediatePropagation.apply(this, arguments);
+            };
+            var cancelBubbleDesc = Object.getOwnPropertyDescriptor(
+                Event.prototype, 'cancelBubble');
+            if (cancelBubbleDesc && cancelBubbleDesc.set) {
+              Object.defineProperty(Event.prototype, 'cancelBubble', {
+                get: cancelBubbleDesc.get,
+                set: function(val) {
+                  if (val && validatingEvents && validatingEvents.has(this)) {
+                    return;
+                  }
+                  cancelBubbleDesc.set.call(this, val);
+                },
+                configurable: true,
+                enumerable: true
+              });
+            }
+            function wrapAddEventListener(origFn) {
+              return function(type, listener, options) {
+                var res = origFn.apply(this, arguments);
+                if (activeDeferredListeners &&
+                    type === activeDeferredListeners.type) {
+                  origRemoveEventListener.call(
+                      window, activeDeferredListeners.type,
+                      activeDeferredListeners.fn, false);
+                  origAddEventListener.call(
+                      window, activeDeferredListeners.type,
+                      activeDeferredListeners.fn, false);
+                }
+                return res;
+              };
+            }
+            var origWinAdd = window.addEventListener || origAddEventListener;
+            EventTarget.prototype.addEventListener =
+                wrapAddEventListener(origAddEventListener);
+            if (typeof Window !== 'undefined' && Window.prototype) {
+              try {
+                Window.prototype.addEventListener =
+                    wrapAddEventListener(origWinAdd);
+              } catch (err) {}
+            }
+            try {
+              window.addEventListener = wrapAddEventListener(origWinAdd);
+            } catch (err) {}
+            function observeMutations(target) {
+              if (!target || typeof MutationObserver === 'undefined') return;
+              new MutationObserver(function(mutations) {
+                if (activeDeferredListeners) {
+                  for (var i = 0; i < mutations.length; i++) {
+                    var m = mutations[i];
+                    if (m.type === 'attributes' &&
+                        isLinkElement(m.target) &&
+                        hasLinkHref(m.target)) {
+                      var mHref = (getLinkHref(m.target) || '').trim();
+                      if (!mHref.startsWith('#')) {
+                        handleLiquidExternalLink(
+                            activeDeferredListeners.event, m.target, mHref,
+                            activeDeferredListeners.programmatic);
+                      }
+                    }
+                  }
+                }
+                purgeMetaRefresh(target);
+              }).observe(target, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['http-equiv', 'href']
+              });
+            }
+            observeMutations(document);
+            if (Element.prototype.attachShadow) {
+              var origAttachShadow = Element.prototype.attachShadow;
+              Element.prototype.attachShadow = function() {
+                var sr = origAttachShadow.apply(this, arguments);
+                observeMutations(sr);
+                return sr;
+              };
+            }
+          }
+
+          // Returns the URL of an absolute or protocol-relative href, or null.
+          function parseAbsoluteUrl(href) {
+            var candidate =
+                PROTOCOL_RELATIVE_RE.test(href) ? 'https:' + href : href;
+            try {
+              return new URL(candidate);
+            } catch (err) {
+              return null;
+            }
+          }
+
+          // Opens the link in a new tab through the Google redirector, which
+          // warns users before they leave for another site.
+          function routeThroughRedirector(link, url) {
+            var redirectUrl = url.href;
+            if (url.origin !== 'https://www.google.com' ||
+                url.pathname !== '/url' ||
+                !url.searchParams.has('q')) {
+              redirectUrl = 'https://www.google.com/url?q=' +
+                  encodeURIComponent(url.href);
+            }
+            origSetAttribute.call(link, 'href', redirectUrl);
+            origRemoveAttributeNS.call(link, XLINK_NS, 'href');
+            origSetAttribute.call(link, 'target', '_blank');
+            origSetAttribute.call(link, 'rel', 'noopener noreferrer');
+          }
+
+          // Lets Liquid App links open web pages only through the redirector,
+          // and blocks links with other protocols, such as javascript:.
+          // Context menu events rewrite or remove the link attribute so that
+          // "Open link in new tab" also goes through the redirector or is
+          // disabled.
+          function handleLiquidExternalLink(e, link, href, programmatic) {
+            if (isLocalDownloadLink(link, href)) return;
+            if (programmatic || inProgrammaticClick > 0) {
+              removeLinkHref(link);
+              origPreventDefault.call(e);
+              origStopPropagation.call(e);
+              return;
+            }
+            var url = parseAbsoluteUrl(href);
+            var protocol = url ? url.protocol : '';
+            if (protocol === 'http:' || protocol === 'https:') {
+              routeThroughRedirector(link, url);
+            } else if (protocol !== 'mailto:' && protocol !== 'tel:') {
+              if (e.type === 'contextmenu') {
+                removeLinkHref(link);
+              } else {
+                origPreventDefault.call(e);
+                origStopPropagation.call(e);
+              }
+            }
+          }
+
+          function validateLiquidLinkAfterBubble(e, anchor, programmatic) {
+            if (validatingEvents) {
+              validatingEvents.add(e);
+            }
+            var state = {
+              type: e.type,
+              fn: onBubble,
+              event: e,
+              programmatic: programmatic
+            };
+            activeDeferredListeners = state;
+            function checkTarget(ev) {
+              var targetLink = anchor || findLinkFromEvent(ev);
+              if (!targetLink || !hasLinkHref(targetLink)) return;
+              var latestHref = (getLinkHref(targetLink) || '').trim();
+              if (!latestHref.startsWith('#')) {
+                handleLiquidExternalLink(
+                    ev, targetLink, latestHref, programmatic);
+              }
+            }
+            Promise.resolve().then(function() {
+              checkTarget(e);
+              if (activeDeferredListeners === state) {
+                activeDeferredListeners = null;
+              }
+            });
+            function onBubble(ev) {
+              origRemoveEventListener.call(window, ev.type, onBubble, false);
+              checkTarget(ev);
+            }
+            origAddEventListener.call(window, e.type, onBubble, false);
+          }
+
+          function handleLinkClick(e) {
+            var programmatic = inProgrammaticClick > 0;
+            // Find the nearest ancestor link (handles nested icons, spans,
+            // svgs, and shadow DOM).
+            var anchor = findLinkFromEvent(e);
+            if (!anchor) {
+              if (isLiquid) {
+                validateLiquidLinkAfterBubble(e, null, programmatic);
+              }
+              return;
+            }
+
+            if (isLiquid) {
+              validateLiquidLinkAfterBubble(e, anchor, programmatic);
+            }
+            var href = (getLinkHref(anchor) || '').trim();
+            if (!href.startsWith('#')) {
+              if (isLiquid) {
+                handleLiquidExternalLink(e, anchor, href, programmatic);
+              }
+              return;
+            }
+            if (e.type === 'contextmenu') return;
+
+            // Prevent default <base target="_blank"> navigation to a new blank tab.
+            origPreventDefault.call(e);
+            if (!isLiquid) {
+              origStopPropagation.call(e);
+            }
+
+            // Handle empty anchor or top anchor.
+            if (href === '#' || href === '#top') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              return;
+            }
+
+            // Resolve target element by id, falling back to legacy name attribute.
+            var targetId = href.slice(1);
+            try {
+              targetId = decodeURIComponent(targetId);
+            } catch (err) {}
+
+            var targetEl = document.getElementById(targetId);
+            if (!targetEl) {
+              try {
+                var escaped = window.CSS && CSS.escape ? CSS.escape(targetId) : targetId.replace(/["\\]/g, '\\$&');
+                targetEl = document.querySelector('[name="' + escaped + '"]');
+              } catch (err) {}
+            }
+
+            // Smoothly scroll to the target within the embed and update URL hash history.
+            if (targetEl) {
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              if (window.history && window.history.pushState) {
+                window.history.pushState(null, '', href);
+              }
+            }
+          }
+
+          function initRender(nextIsLiquid) {
+            isLiquid = isLiquid || !!nextIsLiquid;
+            if (isLiquid) {
+              if (!guardsInstalled) {
+                guardsInstalled = true;
+                installNavigationGuards();
+              } else {
+                try {
+                  window.addEventListener =
+                      EventTarget.prototype.addEventListener;
+                } catch (err) {}
+              }
+              // document.open() removes the window's listeners, so this is
+              // added on every render.
+              origAddEventListener.call(window, 'beforeunload', function(e) {
+                origPreventDefault.call(e);
+                if (origWindowStop) {
+                  origWindowStop();
+                }
+              }, true);
+              purgeMetaRefresh(document);
+            }
+            // Listen during capturing phase to preempt <base target="_blank">.
+            origAddEventListener.call(
+                document, 'click', handleLinkClick, true);
+            if (isLiquid) {
+              origAddEventListener.call(
+                  document, 'auxclick', handleLinkClick, true);
+              origAddEventListener.call(
+                  document, 'contextmenu', handleLinkClick, true);
+            }
+          }
+
+          try {
+            Object.defineProperty(window, '__atariInitRender', {
+              value: initRender,
+              writable: false,
+              configurable: false
+            });
+          } catch (err) {
+            window.__atariInitRender = initRender;
+          }
+          initRender(false);
+        })();
+      </script>
+    
+
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advisory Ticket Booking | Schoology Embed</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                    },
+                    colors: {
+                        schBlue: '#0677BA',
+                        schBlueDark: '#055D92',
+                        schBlueLight: '#EBF5FB',
+                        schBg: '#F5F7FA',
+                        schBorder: '#DCE3EC',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #F5F7FA;
+            color: #1E293B;
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        /* Compact Schoology-native card styling */
+        .sch-card {
+            background: #FFFFFF;
+            border: 1px solid #DCE3EC;
+            border-radius: 10px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        .slot-btn {
+            transition: all 0.15s ease;
+        }
+        .slot-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+        .slot-selected {
+            border-color: #0677BA !important;
+            background-color: #EBF5FB !important;
+            box-shadow: 0 0 0 2px rgba(6, 119, 186, 0.25);
+        }
+        .reason-chip-active {
+            background-color: #0677BA;
+            color: #FFFFFF;
+            border-color: #0677BA;
+        }
+    </style>
+<style>*, ::before, ::after{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */*,::after,::before{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}::after,::before{--tw-content:''}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0;padding:0}legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.pointer-events-none{pointer-events:none}.fixed{position:fixed}.inset-0{inset:0px}.bottom-3{bottom:0.75rem}.right-3{right:0.75rem}.z-50{z-index:50}.mx-auto{margin-left:auto;margin-right:auto}.mb-1{margin-bottom:0.25rem}.mb-3{margin-bottom:0.75rem}.mr-1{margin-right:0.25rem}.mt-0\.5{margin-top:0.125rem}.ml-1{margin-left:0.25rem}.ml-1\.5{margin-left:0.375rem}.block{display:block}.flex{display:flex}.inline-flex{display:inline-flex}.grid{display:grid}.hidden{display:none}.h-1\.5{height:0.375rem}.h-5{height:1.25rem}.h-8{height:2rem}.h-9{height:2.25rem}.max-h-\[85vh\]{max-height:85vh}.max-h-\[90vh\]{max-height:90vh}.w-1\.5{width:0.375rem}.w-5{width:1.25rem}.w-8{width:2rem}.w-9{width:2.25rem}.w-full{width:100%}.max-w-2xl{max-width:42rem}.max-w-\[960px\]{max-width:960px}.max-w-lg{max-width:32rem}.max-w-md{max-width:28rem}.max-w-xl{max-width:36rem}.max-w-xs{max-width:20rem}.flex-1{flex:1 1 0%}.shrink-0{flex-shrink:0}.translate-y-16{--tw-translate-y:4rem;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.transform{transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}@keyframes pulse{50%{opacity:.5}}.animate-pulse{animation:pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite}.cursor-pointer{cursor:pointer}.list-inside{list-style-position:inside}.list-decimal{list-style-type:decimal}.grid-cols-1{grid-template-columns:repeat(1, minmax(0, 1fr))}.grid-cols-3{grid-template-columns:repeat(3, minmax(0, 1fr))}.grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-end{justify-content:flex-end}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1{gap:0.25rem}.gap-1\.5{gap:0.375rem}.gap-2{gap:0.5rem}.gap-2\.5{gap:0.625rem}.space-y-1 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.25rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.25rem * var(--tw-space-y-reverse))}.space-y-2 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.5rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.5rem * var(--tw-space-y-reverse))}.space-y-2\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.625rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.625rem * var(--tw-space-y-reverse))}.space-y-3 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.75rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.75rem * var(--tw-space-y-reverse))}.space-y-1\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.375rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.375rem * var(--tw-space-y-reverse))}.space-y-0\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.125rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.125rem * var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.whitespace-pre-line{white-space:pre-line}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:0.5rem}.rounded-md{border-radius:0.375rem}.rounded-xl{border-radius:0.75rem}.rounded{border-radius:0.25rem}.border{border-width:1px}.border-2{border-width:2px}.border-x{border-left-width:1px;border-right-width:1px}.border-b{border-bottom-width:1px}.border-t{border-top-width:1px}.border-amber-200{--tw-border-opacity:1;border-color:rgb(253 230 138 / var(--tw-border-opacity, 1))}.border-blue-200{--tw-border-opacity:1;border-color:rgb(191 219 254 / var(--tw-border-opacity, 1))}.border-emerald-200{--tw-border-opacity:1;border-color:rgb(167 243 208 / var(--tw-border-opacity, 1))}.border-emerald-300{--tw-border-opacity:1;border-color:rgb(110 231 183 / var(--tw-border-opacity, 1))}.border-purple-200{--tw-border-opacity:1;border-color:rgb(233 213 255 / var(--tw-border-opacity, 1))}.border-red-200{--tw-border-opacity:1;border-color:rgb(254 202 202 / var(--tw-border-opacity, 1))}.border-slate-100{--tw-border-opacity:1;border-color:rgb(241 245 249 / var(--tw-border-opacity, 1))}.border-slate-200{--tw-border-opacity:1;border-color:rgb(226 232 240 / var(--tw-border-opacity, 1))}.border-slate-300{--tw-border-opacity:1;border-color:rgb(203 213 225 / var(--tw-border-opacity, 1))}.border-slate-700{--tw-border-opacity:1;border-color:rgb(51 65 85 / var(--tw-border-opacity, 1))}.border-amber-200\/80{border-color:rgb(253 230 138 / 0.8)}.border-amber-300{--tw-border-opacity:1;border-color:rgb(252 211 77 / var(--tw-border-opacity, 1))}.border-purple-200\/80{border-color:rgb(233 213 255 / 0.8)}.border-slate-200\/80{border-color:rgb(226 232 240 / 0.8)}.border-amber-500{--tw-border-opacity:1;border-color:rgb(245 158 11 / var(--tw-border-opacity, 1))}.border-purple-700{--tw-border-opacity:1;border-color:rgb(126 34 206 / var(--tw-border-opacity, 1))}.border-slate-200\/90{border-color:rgb(226 232 240 / 0.9)}.bg-amber-50{--tw-bg-opacity:1;background-color:rgb(255 251 235 / var(--tw-bg-opacity, 1))}.bg-emerald-50{--tw-bg-opacity:1;background-color:rgb(236 253 245 / var(--tw-bg-opacity, 1))}.bg-emerald-50\/40{background-color:rgb(236 253 245 / 0.4)}.bg-emerald-500{--tw-bg-opacity:1;background-color:rgb(16 185 129 / var(--tw-bg-opacity, 1))}.bg-emerald-600{--tw-bg-opacity:1;background-color:rgb(5 150 105 / var(--tw-bg-opacity, 1))}.bg-emerald-700{--tw-bg-opacity:1;background-color:rgb(4 120 87 / var(--tw-bg-opacity, 1))}.bg-purple-50{--tw-bg-opacity:1;background-color:rgb(250 245 255 / var(--tw-bg-opacity, 1))}.bg-red-50{--tw-bg-opacity:1;background-color:rgb(254 242 242 / var(--tw-bg-opacity, 1))}.bg-schBlue{--tw-bg-opacity:1;background-color:rgb(6 119 186 / var(--tw-bg-opacity, 1))}.bg-schBlueLight{--tw-bg-opacity:1;background-color:rgb(235 245 251 / var(--tw-bg-opacity, 1))}.bg-slate-100{--tw-bg-opacity:1;background-color:rgb(241 245 249 / var(--tw-bg-opacity, 1))}.bg-slate-200{--tw-bg-opacity:1;background-color:rgb(226 232 240 / var(--tw-bg-opacity, 1))}.bg-slate-50{--tw-bg-opacity:1;background-color:rgb(248 250 252 / var(--tw-bg-opacity, 1))}.bg-slate-800{--tw-bg-opacity:1;background-color:rgb(30 41 59 / var(--tw-bg-opacity, 1))}.bg-slate-900{--tw-bg-opacity:1;background-color:rgb(15 23 42 / var(--tw-bg-opacity, 1))}.bg-slate-900\/60{background-color:rgb(15 23 42 / 0.6)}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255 / var(--tw-bg-opacity, 1))}.bg-amber-100{--tw-bg-opacity:1;background-color:rgb(254 243 199 / var(--tw-bg-opacity, 1))}.bg-amber-50\/20{background-color:rgb(255 251 235 / 0.2)}.bg-purple-100{--tw-bg-opacity:1;background-color:rgb(243 232 255 / var(--tw-bg-opacity, 1))}.bg-purple-50\/20{background-color:rgb(250 245 255 / 0.2)}.bg-amber-400{--tw-bg-opacity:1;background-color:rgb(251 191 36 / var(--tw-bg-opacity, 1))}.bg-purple-600{--tw-bg-opacity:1;background-color:rgb(147 51 234 / var(--tw-bg-opacity, 1))}.bg-slate-50\/70{background-color:rgb(248 250 252 / 0.7)}.p-0\.5{padding:0.125rem}.p-2{padding:0.5rem}.p-2\.5{padding:0.625rem}.p-3{padding:0.75rem}.p-3\.5{padding:0.875rem}.p-4{padding:1rem}.p-1\.5{padding:0.375rem}.px-1\.5{padding-left:0.375rem;padding-right:0.375rem}.px-2{padding-left:0.5rem;padding-right:0.5rem}.px-2\.5{padding-left:0.625rem;padding-right:0.625rem}.px-3{padding-left:0.75rem;padding-right:0.75rem}.px-3\.5{padding-left:0.875rem;padding-right:0.875rem}.px-4{padding-left:1rem;padding-right:1rem}.py-0\.5{padding-top:0.125rem;padding-bottom:0.125rem}.py-1{padding-top:0.25rem;padding-bottom:0.25rem}.py-1\.5{padding-top:0.375rem;padding-bottom:0.375rem}.py-2{padding-top:0.5rem;padding-bottom:0.5rem}.py-2\.5{padding-top:0.625rem;padding-bottom:0.625rem}.py-3{padding-top:0.75rem;padding-bottom:0.75rem}.pb-2{padding-bottom:0.5rem}.pb-2\.5{padding-bottom:0.625rem}.pt-1{padding-top:0.25rem}.pb-1\.5{padding-bottom:0.375rem}.pt-0\.5{padding-top:0.125rem}.pb-1{padding-bottom:0.25rem}.text-left{text-align:left}.text-center{text-align:center}.font-mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.text-sm{font-size:0.875rem;line-height:1.25rem}.text-xs{font-size:0.75rem;line-height:1rem}.font-bold{font-weight:700}.font-normal{font-weight:400}.font-semibold{font-weight:600}.font-medium{font-weight:500}.italic{font-style:italic}.leading-relaxed{line-height:1.625}.leading-tight{line-height:1.25}.tracking-widest{letter-spacing:0.1em}.text-amber-300{--tw-text-opacity:1;color:rgb(252 211 77 / var(--tw-text-opacity, 1))}.text-amber-400{--tw-text-opacity:1;color:rgb(251 191 36 / var(--tw-text-opacity, 1))}.text-amber-800{--tw-text-opacity:1;color:rgb(146 64 14 / var(--tw-text-opacity, 1))}.text-blue-100{--tw-text-opacity:1;color:rgb(219 234 254 / var(--tw-text-opacity, 1))}.text-emerald-100{--tw-text-opacity:1;color:rgb(209 250 229 / var(--tw-text-opacity, 1))}.text-emerald-300{--tw-text-opacity:1;color:rgb(110 231 183 / var(--tw-text-opacity, 1))}.text-emerald-400{--tw-text-opacity:1;color:rgb(52 211 153 / var(--tw-text-opacity, 1))}.text-emerald-700{--tw-text-opacity:1;color:rgb(4 120 87 / var(--tw-text-opacity, 1))}.text-purple-800{--tw-text-opacity:1;color:rgb(107 33 168 / var(--tw-text-opacity, 1))}.text-red-500{--tw-text-opacity:1;color:rgb(239 68 68 / var(--tw-text-opacity, 1))}.text-red-700{--tw-text-opacity:1;color:rgb(185 28 28 / var(--tw-text-opacity, 1))}.text-schBlue{--tw-text-opacity:1;color:rgb(6 119 186 / var(--tw-text-opacity, 1))}.text-sky-300{--tw-text-opacity:1;color:rgb(125 211 252 / var(--tw-text-opacity, 1))}.text-sky-400{--tw-text-opacity:1;color:rgb(56 189 248 / var(--tw-text-opacity, 1))}.text-slate-400{--tw-text-opacity:1;color:rgb(148 163 184 / var(--tw-text-opacity, 1))}.text-slate-500{--tw-text-opacity:1;color:rgb(100 116 139 / var(--tw-text-opacity, 1))}.text-slate-600{--tw-text-opacity:1;color:rgb(71 85 105 / var(--tw-text-opacity, 1))}.text-slate-700{--tw-text-opacity:1;color:rgb(51 65 85 / var(--tw-text-opacity, 1))}.text-slate-800{--tw-text-opacity:1;color:rgb(30 41 59 / var(--tw-text-opacity, 1))}.text-slate-900{--tw-text-opacity:1;color:rgb(15 23 42 / var(--tw-text-opacity, 1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255 / var(--tw-text-opacity, 1))}.text-emerald-600{--tw-text-opacity:1;color:rgb(5 150 105 / var(--tw-text-opacity, 1))}.text-slate-950{--tw-text-opacity:1;color:rgb(2 6 23 / var(--tw-text-opacity, 1))}.opacity-0{opacity:0}.shadow-lg{--tw-shadow:0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.outline-none{outline:2px solid transparent;outline-offset:2px}.transition{transition-property:color, background-color, border-color, fill, stroke, opacity, box-shadow, transform, filter, -webkit-text-decoration-color, -webkit-backdrop-filter;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, -webkit-text-decoration-color, -webkit-backdrop-filter;transition-timing-function:cubic-bezier(0.4, 0, 0.2, 1);transition-duration:150ms}.transition-all{transition-property:all;transition-timing-function:cubic-bezier(0.4, 0, 0.2, 1);transition-duration:150ms}.duration-200{transition-duration:200ms}.hover\:border-schBlue:hover{--tw-border-opacity:1;border-color:rgb(6 119 186 / var(--tw-border-opacity, 1))}.hover\:bg-amber-100:hover{--tw-bg-opacity:1;background-color:rgb(254 243 199 / var(--tw-bg-opacity, 1))}.hover\:bg-blue-100:hover{--tw-bg-opacity:1;background-color:rgb(219 234 254 / var(--tw-bg-opacity, 1))}.hover\:bg-emerald-700:hover{--tw-bg-opacity:1;background-color:rgb(4 120 87 / var(--tw-bg-opacity, 1))}.hover\:bg-purple-100:hover{--tw-bg-opacity:1;background-color:rgb(243 232 255 / var(--tw-bg-opacity, 1))}.hover\:bg-red-100:hover{--tw-bg-opacity:1;background-color:rgb(254 226 226 / var(--tw-bg-opacity, 1))}.hover\:bg-schBlueDark:hover{--tw-bg-opacity:1;background-color:rgb(5 93 146 / var(--tw-bg-opacity, 1))}.hover\:bg-slate-200:hover{--tw-bg-opacity:1;background-color:rgb(226 232 240 / var(--tw-bg-opacity, 1))}.hover\:bg-slate-300:hover{--tw-bg-opacity:1;background-color:rgb(203 213 225 / var(--tw-bg-opacity, 1))}.hover\:bg-slate-50:hover{--tw-bg-opacity:1;background-color:rgb(248 250 252 / var(--tw-bg-opacity, 1))}.hover\:bg-slate-900:hover{--tw-bg-opacity:1;background-color:rgb(15 23 42 / var(--tw-bg-opacity, 1))}.hover\:bg-amber-50:hover{--tw-bg-opacity:1;background-color:rgb(255 251 235 / var(--tw-bg-opacity, 1))}.hover\:bg-purple-50:hover{--tw-bg-opacity:1;background-color:rgb(250 245 255 / var(--tw-bg-opacity, 1))}.hover\:bg-slate-100:hover{--tw-bg-opacity:1;background-color:rgb(241 245 249 / var(--tw-bg-opacity, 1))}.hover\:text-slate-900:hover{--tw-text-opacity:1;color:rgb(15 23 42 / var(--tw-text-opacity, 1))}.hover\:text-white:hover{--tw-text-opacity:1;color:rgb(255 255 255 / var(--tw-text-opacity, 1))}.hover\:underline:hover{-webkit-text-decoration-line:underline;text-decoration-line:underline}.focus\:border-emerald-600:focus{--tw-border-opacity:1;border-color:rgb(5 150 105 / var(--tw-border-opacity, 1))}.focus\:border-schBlue:focus{--tw-border-opacity:1;border-color:rgb(6 119 186 / var(--tw-border-opacity, 1))}.focus\:ring-2:focus{--tw-ring-offset-shadow:var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);--tw-ring-shadow:var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);box-shadow:var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)}.focus\:ring-schBlue:focus{--tw-ring-opacity:1;--tw-ring-color:rgb(6 119 186 / var(--tw-ring-opacity, 1))}.disabled\:cursor-not-allowed:disabled{cursor:not-allowed}.disabled\:opacity-55:disabled{opacity:0.55}@media (min-width: 640px){.sm\:inline{display:inline}.sm\:grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}.sm\:p-3{padding:0.75rem}.sm\:text-base{font-size:1rem;line-height:1.5rem}.sm\:text-sm{font-size:0.875rem;line-height:1.25rem}}@media (min-width: 768px){.md\:inline{display:inline}.md\:grid-cols-5{grid-template-columns:repeat(5, minmax(0, 1fr))}}@media (min-width: 1024px){.lg\:grid-cols-4{grid-template-columns:repeat(4, minmax(0, 1fr))}}</style></head>
+<body class="p-2 sm:p-3">
+
+    <!-- Main Iframe-Optimized Container (Max Width 960px, Zero Bloated Margins) -->
+    <div id="embed-root" class="max-w-[960px] mx-auto space-y-3">
+
+        <!-- 1. COMPACT SCHOOLOGY EMBED HEADER -->
+        <header class="sch-card px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+            <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-lg bg-schBlue text-white flex items-center justify-center shrink-0 font-bold text-sm shadow-2xs">
+                    <i class="fa-solid fa-ticket"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h1 id="header-teacher-title" class="font-bold text-sm sm:text-base text-slate-900 leading-tight">Ms. Clough • Advisory &amp; Office Hours</h1>
+                        <span id="sync-status-pill" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span id="sync-status-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span id="sync-status-text">Booking Open</span>
+                        </span>
+                    </div>
+                    <p id="header-room-subtitle" class="text-xs text-slate-500">Room J215 • 7th &amp; 9th Grade English</p>
+                </div>
+            </div>
+
+            <!-- Right Controls: Mode Switcher + My Passes + Embed Snippet -->
+            <div class="flex items-center gap-1.5 flex-wrap">
+                <!-- Student / Teacher Toggle -->
+                <div class="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200 text-xs font-semibold">
+                    <button id="tab-student-btn" onclick="switchViewMode('student')" class="px-2.5 py-1.5 rounded-md bg-white text-schBlue shadow-2xs transition cursor-pointer">
+                        Student Booking
+                    </button>
+                    <button id="tab-teacher-btn" onclick="requestTeacherMode()" class="px-2.5 py-1.5 rounded-md text-slate-600 hover:text-slate-900 transition cursor-pointer flex items-center gap-1">
+                        <i id="teacher-lock-icon" class="fa-solid fa-lock text-[10px]"></i>
+                        <span>Teacher Roster</span>
+                    </button>
+                </div>
+
+                <!-- My Active Passes Button -->
+                <button onclick="openMyPassesModal()" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-schBlueLight hover:bg-blue-100 text-schBlue border border-blue-200 text-xs font-semibold transition cursor-pointer">
+                    <i class="fa-solid fa-id-card"></i>
+                    <span class="hidden sm:inline">My Passes</span>
+                    <span id="active-passes-badge" class="px-1.5 py-0.2 rounded-full bg-schBlue text-white text-[10px] font-bold">1</span>
+                </button>
+
+                <!-- Copy Schoology Embed Code Button -->
+                <button onclick="openEmbedModal()" title="Get Schoology Iframe Code" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-semibold transition cursor-pointer">
+                    <i class="fa-solid fa-code text-schBlue"></i>
+                    <span class="hidden md:inline">Embed</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- ========================================================= -->
+        <!-- 2. STUDENT BOOKING VIEW                                   -->
+        <!-- ========================================================= -->
+        <main id="student-view" class="space-y-3">
+
+            <!-- STEP 1: WEEKLY SLOT PICKER -->
+            <section class="sch-card p-3.5 space-y-2.5">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                    <div>
+                        <h2 class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                            <span class="w-5 h-5 rounded-full bg-schBlue text-white inline-flex items-center justify-center text-[11px] font-bold">1</span>
+                            <span>Select an Open Time Slot</span>
+                        </h2>
+                        <p class="text-[11px] text-slate-500 mt-0.5">Gold Days offer Period 2 Advisory • Purple Days offer Morning Drop-In &amp; After-School Office Hours</p>
+                    </div>
+
+                    <!-- Week Selector Tabs -->
+                    <div class="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200 text-xs font-semibold">
+                        <button id="week-btn-0" onclick="selectWeek(0)" class="px-2.5 py-1 rounded-md bg-white text-schBlue shadow-2xs transition cursor-pointer">
+                            This Week
+                        </button>
+                        <button id="week-btn-1" onclick="selectWeek(1)" class="px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition cursor-pointer">
+                            Next Week
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 5-Day Responsive Schedule Grid -->
+                <div id="weekly-slot-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2"></div>
+            </section>
+
+            <!-- STEP 2: REQUEST ADVISORY PASS FORM & VERIFICATION CONFIRMATION -->
+            <section class="sch-card p-3.5">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 mb-3">
+                    <h2 class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                        <span class="w-5 h-5 rounded-full bg-schBlue text-white inline-flex items-center justify-center text-[11px] font-bold">2</span>
+                        <span>Request Advisory Pass</span>
+                    </h2>
+                    <div id="selected-slot-banner" class="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-200">Select an open slot above to begin</div>
+                </div>
+
+                <!-- Student Booking Form -->
+                <form id="booking-form" class="space-y-3 text-xs">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                        <div>
+                            <label for="inp-student-name" class="block font-bold text-slate-700 mb-1">Student Full Name <span class="text-red-500">*</span></label>
+                            <input type="text" id="inp-student-name" required="" placeholder="e.g., Jordan Alvarez" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-schBlue focus:border-schBlue outline-none">
+                        </div>
+                        <div>
+                            <label for="inp-student-email" class="block font-bold text-slate-700 mb-1">Student Email <span class="text-red-500">*</span></label>
+                            <input type="email" id="inp-student-email" required="" placeholder="e.g., 123456@fcpsschools.net" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-schBlue focus:border-schBlue outline-none">
+                        </div>
+                        <div>
+                            <label for="inp-student-grade" class="block font-bold text-slate-700 mb-1">Grade Level <span class="text-red-500">*</span></label>
+                            <select id="inp-student-grade" required="" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-schBlue focus:border-schBlue outline-none">
+                                <option value="7th Grade">7th Grade</option>
+                                <option value="9th Grade">9th Grade</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="inp-student-period" class="block font-bold text-slate-700 mb-1">Period <span class="text-red-500">*</span></label>
+                            <select id="inp-student-period" required="" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-schBlue focus:border-schBlue outline-none">
+                                <option value="Period 3">3</option>
+                                <option value="Period 5">5</option>
+                                <option value="Period 6">6</option>
+                                <option value="Period 7">7</option>
+                                <option value="Period 8">8</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Parameter: Approximately how long do you need to meet with me? -->
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Approximately how long do you need to meet with me? <span class="text-red-500">*</span></label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button type="button" onclick="selectDurationChip(this, '0-15 min')" class="duration-chip reason-chip-active py-1.5 px-2 rounded-lg border border-slate-300 font-semibold text-center transition cursor-pointer">
+                                0-15 min
+                            </button>
+                            <button type="button" onclick="selectDurationChip(this, '15-45 min')" class="duration-chip bg-white text-slate-700 hover:bg-slate-50 py-1.5 px-2 rounded-lg border border-slate-300 font-semibold text-center transition cursor-pointer">
+                                15-45 min
+                            </button>
+                            <button type="button" onclick="selectDurationChip(this, '45-60 min')" class="duration-chip bg-white text-slate-700 hover:bg-slate-50 py-1.5 px-2 rounded-lg border border-slate-300 font-semibold text-center transition cursor-pointer">
+                                45-60 min
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Parameter: How can I help you? -->
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">How can I help you? <span class="text-red-500">*</span></label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            <button type="button" onclick="selectReasonChip(this, 'I don\'t understand the summative/formative.')" class="reason-chip reason-chip-active text-left py-1.5 px-2.5 rounded-lg border border-slate-300 font-semibold transition cursor-pointer">
+                                I don't understand the summative/formative.
+                            </button>
+                            <button type="button" onclick="selectReasonChip(this, 'I don\'t understand the reading.')" class="reason-chip bg-white text-slate-700 hover:bg-slate-50 text-left py-1.5 px-2.5 rounded-lg border border-slate-300 font-semibold transition cursor-pointer">
+                                I don't understand the reading.
+                            </button>
+                            <button type="button" onclick="selectReasonChip(this, 'I have questions about my grade.')" class="reason-chip bg-white text-slate-700 hover:bg-slate-50 text-left py-1.5 px-2.5 rounded-lg border border-slate-300 font-semibold transition cursor-pointer">
+                                I have questions about my grade.
+                            </button>
+                            <button type="button" onclick="selectReasonChip(this, 'Something else not listed.')" class="reason-chip bg-white text-slate-700 hover:bg-slate-50 text-left py-1.5 px-2.5 rounded-lg border border-slate-300 font-semibold transition cursor-pointer">
+                                Something else not listed.
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="inp-student-note" class="block font-bold text-slate-700 mb-1">Specific Assignment or Question <span class="text-slate-400 font-normal">(optional unless "Something else" selected)</span></label>
+                        <input type="text" id="inp-student-note" placeholder="e.g., Unit 3 DBQ thesis statement or Chapter 5 reading" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-schBlue focus:border-schBlue outline-none">
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <p class="text-[11px] text-slate-500">
+                            <i class="fa-solid fa-envelope-circle-check text-schBlue mr-1"></i>A verification email receipt will be generated for your student email.
+                        </p>
+                        <button type="submit" id="submit-booking-btn" class="px-4 py-2 rounded-lg bg-schBlue hover:bg-schBlueDark text-white font-bold text-xs shadow-2xs transition cursor-pointer flex items-center gap-1.5">
+                            <i class="fa-solid fa-paper-plane"></i>
+                            <span>Book Slot &amp; Send Verification Email</span>
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Verification Email Confirmation View (Shown after booking) -->
+                <div id="verification-email-card" class="hidden rounded-xl border-2 border-emerald-300 bg-emerald-50/40 p-3.5 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                                <i class="fa-solid fa-envelope-circle-check"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-sm text-slate-900">Verification Email Ready</h3>
+                                <p class="text-xs text-slate-600">To: <span id="verif-to-email" class="font-mono font-bold text-schBlue">student@fcpsschools.net</span></p>
+                            </div>
+                        </div>
+                        <span id="verif-ticket-badge" class="px-2.5 py-1 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs">
+                            ADV-0000
+                        </span>
+                    </div>
+
+                    <div id="verif-email-body" class="p-3 rounded-lg bg-white border border-slate-200 font-mono text-[11px] text-slate-700 whitespace-pre-line leading-relaxed">
+                        <!-- Populated dynamically -->
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <a id="verif-mailto-link" href="#" class="px-3 py-1.5 rounded-lg bg-schBlue hover:bg-schBlueDark text-white font-bold text-xs inline-flex items-center gap-1.5">
+                                <i class="fa-solid fa-envelope"></i> Open in Email App
+                            </a>
+                            <button type="button" onclick="copyVerificationEmail()" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold text-xs cursor-pointer inline-flex items-center gap-1.5">
+                                <i class="fa-regular fa-copy"></i> Copy Email
+                            </button>
+                        </div>
+                        <button type="button" onclick="resetBookingForm()" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-xs cursor-pointer">
+                            Book Another Pass
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- ========================================================= -->
+        <!-- 3. TEACHER ROSTER & SCHEDULE MANAGER VIEW (PIN: 2451)     -->
+        <!-- ========================================================= -->
+        <section id="teacher-view" class="space-y-3 hidden">
+            <!-- Top Roster Controls Bar -->
+            <div class="sch-card p-3 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span id="roster-stats-summary" class="px-2.5 py-1 rounded-md bg-schBlueLight text-schBlue font-bold text-xs">0 Booked Students This Week</span>
+                    <div class="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200 text-xs font-semibold">
+                        <button onclick="selectWeek(0); renderTeacherRoster();" class="px-2 py-1 rounded-md bg-white text-slate-800 shadow-2xs cursor-pointer">
+                            This Week
+                        </button>
+                        <button onclick="selectWeek(1); renderTeacherRoster();" class="px-2 py-1 rounded-md text-slate-600 hover:text-slate-900 cursor-pointer">
+                            Next Week
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1.5 flex-wrap text-xs">
+                    <button onclick="openExportHtmlModal()" class="px-2.5 py-1.5 rounded-lg bg-schBlue hover:bg-schBlueDark text-white font-bold cursor-pointer flex items-center gap-1 shadow-2xs">
+                        <i class="fa-solid fa-file-export"></i> Export Updated HTML
+                    </button>
+                    <button onclick="openSheetsSyncModal()" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer flex items-center gap-1">
+                        <i class="fa-solid fa-table"></i> Google Sheets Sync
+                    </button>
+                    <button onclick="openRoomSettingsModal()" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold border border-slate-200 cursor-pointer">
+                        <i class="fa-solid fa-pen-to-square mr-1"></i>Edit Header
+                    </button>
+                    <button onclick="resetAllDemoData()" class="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-semibold border border-red-200 cursor-pointer">
+                        Reset Defaults
+                    </button>
+                </div>
+            </div>
+
+            <!-- Edit Time Slots & Bell Schedule Hours Panel -->
+            <div class="sch-card p-3 space-y-2.5">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                    <div>
+                        <h3 class="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                            <i class="fa-solid fa-clock text-schBlue"></i>
+                            <span>Edit Time Slots, Gold/Purple Days &amp; Bell Schedule Hours</span>
+                        </h3>
+                        <p class="text-[11px] text-slate-500">Toggle Gold vs. Purple days, swap Advisory to Period 8 afternoon, or customize session labels/times.</p>
+                    </div>
+                    <div class="flex items-center gap-1.5 flex-wrap text-[11px] font-bold">
+                        <button type="button" onclick="applyWeekBlockPattern()" class="px-2.5 py-1 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 cursor-pointer">
+                            Alternate Gold / Purple
+                        </button>
+                        <button type="button" onclick="applyWeekAdvisoryPreset('afternoon')" class="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 cursor-pointer">
+                            Period 8 Swap (PM)
+                        </button>
+                        <button type="button" onclick="applyWeekAdvisoryPreset('morning')" class="px-2.5 py-1 rounded-md bg-schBlueLight hover:bg-blue-100 text-schBlue border border-blue-200 cursor-pointer">
+                            Restore Morning (8:30 AM)
+                        </button>
+                    </div>
+                </div>
+
+                <div id="teacher-slot-editor-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2"></div>
+            </div>
+
+            <!-- Day-by-Day Capacity & Student Check-In Roster -->
+            <div id="teacher-roster-container" class="space-y-2.5"></div>
+        </section>
+
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- MODAL 6: ONE-CLICK EXPORT UPDATED HTML (FOR GOOGLE SITES) -->
+    <!-- ========================================================= -->
+    <div id="export-html-modal" class="fixed inset-0 z-50 items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-3 hidden">
+        <div class="sch-card max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-file-code text-sky-400"></i>
+                    <h3 class="font-bold text-sm">Export Updated HTML (Ready for Google Sites)</h3>
+                </div>
+                <button onclick="closeExportHtmlModal()" class="text-slate-400 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-4 overflow-y-auto space-y-3 text-xs text-slate-700">
+                <div class="p-3 rounded-lg bg-schBlueLight border border-blue-200 text-slate-800 space-y-1">
+                    <p class="font-bold text-schBlue flex items-center gap-1.5">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>All Current Backend Edits Baked In!</span>
+                    </p>
+                    <p class="text-[11px] leading-relaxed">
+                        This exported HTML includes your current <strong>Gold/Purple day schedule</strong>, <strong>Period 8 swaps</strong>, <strong>blocked days</strong>, <strong>slot capacities</strong>, and <strong>room header</strong> as the new default for every student who opens your Google Site.
+                    </p>
+                </div>
+
+                <ol class="list-decimal list-inside space-y-1 text-[11px] text-slate-600">
+                    <li>Click <strong>Copy Updated HTML</strong> (or <strong>Download index.html</strong>) below.</li>
+                    <li>Open your <strong>Google Site</strong> → click your embedded widget → click the <strong>Edit (pencil)</strong> icon.</li>
+                    <li>Select all existing code, paste the copied HTML, click <strong>Next → Save</strong>, and click <strong>Publish</strong> in the top right.</li>
+                </ol>
+
+                <textarea id="exported-html-output" readonly="" rows="8" class="w-full p-2.5 rounded-lg bg-slate-900 text-sky-300 font-mono text-[10px] leading-relaxed outline-none"></textarea>
+
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" onclick="copyExportedHtml()" class="px-3.5 py-2 rounded-lg bg-schBlue hover:bg-schBlueDark text-white font-bold text-xs cursor-pointer flex items-center gap-1.5">
+                            <i class="fa-regular fa-copy"></i> Copy Updated HTML
+                        </button>
+                        <button type="button" onclick="downloadExportedHtml()" class="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs cursor-pointer flex items-center gap-1.5">
+                            <i class="fa-solid fa-download"></i> Download index.html
+                        </button>
+                    </div>
+                    <button type="button" onclick="closeExportHtmlModal()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs cursor-pointer">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- MODAL 1: TEACHER PIN LOGIN                                -->
+    <!-- ========================================================= -->
+    <div id="pin-modal" class="fixed inset-0 z-50 items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-3 hidden">
+        <div class="sch-card max-w-xs w-full overflow-hidden">
+            <div class="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
+                <span class="font-bold text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-lock text-amber-400"></i> Teacher Roster Access
+                </span>
+                <button onclick="closePinModal()" class="text-slate-400 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <form id="pin-form" class="p-4 space-y-3 text-xs">
+                <p class="text-slate-600">Enter your Teacher PIN to manage Gold/Purple days, capacities, and student check-ins.</p>
+                <input type="password" id="pin-input" maxlength="8" required="" placeholder="Enter PIN" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-center font-mono font-bold tracking-widest text-sm focus:ring-2 focus:ring-schBlue outline-none">
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="closePinModal()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer">Cancel</button>
+                    <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-schBlue hover:bg-schBlueDark text-white font-bold cursor-pointer">Unlock</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- MODAL 2: MY ACTIVE PASSES                                 -->
+    <!-- ========================================================= -->
+    <div id="my-passes-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-3">
+        <div class="sch-card max-w-md w-full overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="px-4 py-3 bg-schBlue text-white flex items-center justify-between">
+                <span class="font-bold text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-id-card"></i> My Booked Advisory Passes
+                </span>
+                <button onclick="closeMyPassesModal()" class="text-blue-100 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div id="my-passes-list" class="p-3.5 overflow-y-auto space-y-2 bg-slate-50"></div>
+            <div class="px-4 py-2.5 bg-white border-t border-slate-200 flex justify-end">
+                <button onclick="closeMyPassesModal()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs cursor-pointer">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- MODAL 3: SCHOOLOGY EMBED SNIPPET                          -->
+    <!-- ========================================================= -->
+    <div id="embed-code-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-3">
+        <div class="sch-card max-w-lg w-full overflow-hidden">
+            <div class="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
+                <span class="font-bold text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-code text-sky-400"></i> Schoology Page Embed Snippet
+                </span>
+                <button onclick="closeEmbedModal()" class="text-slate-400 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-3 text-xs text-slate-700">
+                <p>Paste this HTML snippet into a <strong>Schoology Page</strong> (using the <code>&lt;/&gt;</code> Switch to HTML button) after hosting your file:</p>
+                <textarea id="schoology-iframe-snippet" readonly="" rows="4" class="w-full p-2.5 rounded-lg bg-slate-900 text-emerald-300 font-mono text-[11px] outline-none">&lt;iframe src="YOUR-HOSTED-HTTPS-URL" width="100%" height="740" frameborder="0" style="border: 1px solid #DCE3EC; border-radius: 10px; max-width: 960px; display: block; margin: 0 auto;"&gt;&lt;/iframe&gt;</textarea>
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="copySchoologySnippet()" class="px-3.5 py-1.5 rounded-lg bg-schBlue hover:bg-schBlueDark text-white font-bold cursor-pointer">Copy Snippet</button>
+                    <button type="button" onclick="closeEmbedModal()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- MODAL 4: EDIT HEADER & ROOM SETTINGS                      -->
+    <!-- ========================================================= -->
+    <div id="room-settings-modal" class="fixed inset-0 z-50 items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-3 hidden">
+        <div class="sch-card max-w-md w-full overflow-hidden">
+            <div class="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
+                <span class="font-bold text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-pen-to-square text-sky-400"></i> Edit Header &amp; Room Info
+                </span>
+                <button onclick="closeRoomSettingsModal()" class="text-slate-400 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <form id="room-settings-form" class="p-4 space-y-3 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Header Title</label>
+                    <input type="text" id="set-teacher-title" required="" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 outline-none focus:border-schBlue">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Subtitle (Room &amp; Courses)</label>
+                    <input type="text" id="set-room-subtitle" required="" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 outline-none focus:border-schBlue">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Short Room Label (for Emails)</label>
+                    <input type="text" id="set-room-short" required="" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 outline-none focus:border-schBlue">
+                </div>
+                <div class="flex justify-end gap-2 pt-1">
+                    <button type="button" onclick="closeRoomSettingsModal()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer">Cancel</button>
+                    <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-schBlue hover:bg-schBlueDark text-white font-bold cursor-pointer">Save Header</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- MODAL 5: GOOGLE SHEETS & APPS SCRIPT SYNC WIZARD          -->
+    <!-- ========================================================= -->
+    <div id="sheets-sync-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-3">
+        <div class="sch-card max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-4 py-3 bg-emerald-700 text-white flex items-center justify-between">
+                <span class="font-bold text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-table"></i> Google Sheets Live Sync (Optional)
+                </span>
+                <button onclick="closeSheetsSyncModal()" class="text-emerald-100 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-4 overflow-y-auto space-y-3 text-xs text-slate-700">
+                <p id="sheets-connection-status" class="text-[11px] font-semibold text-slate-500">Status: Not connected</p>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="font-bold text-slate-800">Step 1: Apps Script Code (Requires "Who has access: Anyone")</span>
+                        <button type="button" onclick="copyAppsScriptCode()" class="text-[11px] font-bold text-schBlue hover:underline cursor-pointer">Copy Script</button>
+                    </div>
+                    <textarea id="apps-script-code-box" readonly="" rows="5" class="w-full p-2 rounded-lg bg-slate-900 text-emerald-300 font-mono text-[10px] outline-none"></textarea>
+                </div>
+                <form id="sheets-url-form" class="space-y-2">
+                    <label class="block font-bold text-slate-800">Step 2: Paste Web App <code>/exec</code> URL</label>
+                    <input type="url" id="inp-sheets-webhook-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 font-mono text-[11px] outline-none focus:border-emerald-600">
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <button type="button" onclick="disconnectGoogleSheets()" class="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-semibold cursor-pointer">Disconnect</button>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="closeSheetsSyncModal()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer">Close</button>
+                            <button type="submit" id="save-sheets-btn" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer">Save &amp; Sync</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subtle Toast Notification -->
+    <div id="toast-box" class="fixed bottom-3 right-3 z-50 transform transition-all duration-200 pointer-events-none translate-y-16 opacity-0">
+        <div class="bg-slate-900 text-white px-3.5 py-2 rounded-lg shadow-lg text-xs font-semibold flex items-center gap-2 border border-slate-700">
+            <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+            <span id="toast-text">Updated HTML copied! Paste into your Google Site Embed box.</span>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. DEFAULT STATE & CONFIGURATION
+        // ==========================================
+        const HARDCODED_SHEETS_WEBAPP_URL = ''; // Optional: Paste your Apps Script /exec URL here before embedding
+
+        /* BAKED_DEFAULTS_START */
+        const BAKED_CONFIG = {"teacherTitle":"Ms. Clough • Advisory & Office Hours","roomSubtitle":"Room J215 • 7th & 9th Grade English","roomShort":"Room J215"};
+        const BAKED_SCHEDULE = [{"weekLabel":"This Week","days":[{"id":"w0-d0","dayShort":"Mon","dayFull":"Monday","dateStr":"Nov 16","dayType":"purple","blocked":false,"blockReason":"","slots":[{"id":"w0-d0-am","label":"Morning Drop-In","time":"7:30 AM – 7:55 AM","capacity":2},{"id":"w0-d0-pm","label":"After-School Office Hours","time":"3:00 PM – 3:45 PM","capacity":2}]},{"id":"w0-d1","dayShort":"Tue","dayFull":"Tuesday","dateStr":"Nov 17","dayType":"gold","blocked":false,"blockReason":"","slots":[{"id":"w0-d1-adv","label":"Advisory Block (Period 2)","time":"8:30 AM – 9:30 AM","capacity":6}]},{"id":"w0-d2","dayShort":"Wed","dayFull":"Wednesday","dateStr":"Nov 18","dayType":"purple","blocked":false,"blockReason":"","slots":[{"id":"w0-d2-am","label":"Morning Drop-In","time":"7:30 AM – 7:55 AM","capacity":2},{"id":"w0-d2-pm","label":"After-School Office Hours","time":"3:00 PM – 3:45 PM","capacity":2}]},{"id":"w0-d3","dayShort":"Thu","dayFull":"Thursday","dateStr":"Nov 19","dayType":"gold","blocked":false,"blockReason":"","slots":[{"id":"w0-d3-adv","label":"Advisory Block (Period 2)","time":"8:30 AM – 9:30 AM","capacity":6}]},{"id":"w0-d4","dayShort":"Fri","dayFull":"Friday","dateStr":"Nov 20","dayType":"purple","blocked":false,"blockReason":"","slots":[{"id":"w0-d4-am","label":"Morning Drop-In","time":"7:30 AM – 7:55 AM","capacity":2},{"id":"w0-d4-pm","label":"After-School Office Hours","time":"3:00 PM – 3:45 PM","capacity":2}]}]},{"weekLabel":"Next Week","days":[{"id":"w1-d0","dayShort":"Mon","dayFull":"Monday","dateStr":"Nov 23","dayType":"gold","blocked":false,"blockReason":"","slots":[{"id":"w1-d0-adv","label":"Advisory Block (Period 2)","time":"8:30 AM – 9:30 AM","capacity":6}]},{"id":"w1-d1","dayShort":"Tue","dayFull":"Tuesday","dateStr":"Nov 24","dayType":"purple","blocked":false,"blockReason":"","slots":[{"id":"w1-d1-am","label":"Morning Drop-In","time":"7:30 AM – 7:55 AM","capacity":6},{"id":"w1-d1-pm","label":"After-School Office Hours","time":"3:00 PM – 3:45 PM","capacity":6}]},{"id":"w1-d2","dayShort":"Wed","dayFull":"Wednesday","dateStr":"Nov 25","dayType":"gold","blocked":false,"blockReason":"","slots":[{"id":"w1-d2-adv","label":"Advisory Block (Period 2)","time":"8:30 AM – 9:30 AM","capacity":6}]},{"id":"w1-d3","dayShort":"Thu","dayFull":"Thursday","dateStr":"Nov 26","dayType":"purple","blocked":false,"blockReason":"","slots":[{"id":"w1-d3-am","label":"Morning Drop-In","time":"7:30 AM – 7:55 AM","capacity":6},{"id":"w1-d3-pm","label":"After-School Office Hours","time":"3:00 PM – 3:45 PM","capacity":6}]},{"id":"w1-d4","dayShort":"Fri","dayFull":"Friday","dateStr":"Nov 27","dayType":"gold","blocked":false,"blockReason":"","slots":[{"id":"w1-d4-adv","label":"Advisory Block (Period 2)","time":"8:30 AM – 9:30 AM","capacity":6}]}]}];
+        /* BAKED_DEFAULTS_END */
+
+        const DEFAULT_CONFIG = BAKED_CONFIG || {
+            teacherTitle: 'Mr. Vance • Advisory & Office Hours',
+            roomSubtitle: 'Room 214B • 7th & 9th Grade History & Humanities',
+            roomShort: 'Room 214B'
+        };
+
+        function buildSlotsForDayType(dayId, dayType) {
+            if (dayType === 'purple') {
+                return [
+                    { id: `${dayId}-am`, label: 'Morning Drop-In', time: '7:30 AM – 7:55 AM', capacity: 6 },
+                    { id: `${dayId}-pm`, label: 'After-School Office Hours', time: '3:00 PM – 3:45 PM', capacity: 6 }
+                ];
+            }
+            return [
+                { id: `${dayId}-adv`, label: 'Advisory Block (Period 2)', time: '8:30 AM – 9:30 AM', capacity: 6 }
+            ];
+        }
+
+        function getUpcomingSchoolWeeks() {
+            const base = new Date();
+            const dayOfWeek = base.getDay();
+            const diffToMonday = dayOfWeek === 0 ? 1 : (dayOfWeek === 6 ? 2 : 1 - dayOfWeek);
+            const monday0 = new Date(base);
+            monday0.setDate(base.getDate() + diffToMonday);
+
+            const dayNames = [
+                { short: 'Mon', full: 'Monday' },
+                { short: 'Tue', full: 'Tuesday' },
+                { short: 'Wed', full: 'Wednesday' },
+                { short: 'Thu', full: 'Thursday' },
+                { short: 'Fri', full: 'Friday' }
+            ];
+
+            return [0, 1].map(weekOffset => {
+                const days = dayNames.map((d, idx) => {
+                    const dt = new Date(monday0);
+                    dt.setDate(monday0.getDate() + weekOffset * 7 + idx);
+                    const dateStr = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const dayId = `w${weekOffset}-d${idx}`;
+                    const dayType = (idx % 2 === 0) ? 'gold' : 'purple';
+                    return {
+                        id: dayId,
+                        dayShort: d.short,
+                        dayFull: d.full,
+                        dateStr: dateStr,
+                        dayType: dayType,
+                        blocked: false,
+                        blockReason: '',
+                        slots: buildSlotsForDayType(dayId, dayType)
+                    };
+                });
+                return {
+                    weekLabel: weekOffset === 0 ? 'This Week' : 'Next Week',
+                    days: days
+                };
+            });
+        }
+
+        const DEFAULT_SCHEDULE = BAKED_SCHEDULE || getUpcomingSchoolWeeks();
+
+        const DEFAULT_BOOKINGS = [
+            {
+                ticketId: 'ADV-4102',
+                slotId: 'w0-d0-adv',
+                studentName: 'Maya Lin',
+                studentEmail: '184920@fcpsschools.net',
+                grade: '9th Grade',
+                homeroomTeacher: 'Period 5',
+                duration: '15-45 min',
+                reason: "I don't understand the summative/formative.",
+                note: 'Reviewing Industrial Revolution rubric',
+                arrived: false
+            }
+        ];
+
+        const EXPORT_BUILD_STAMP = 'build-1794859207869';
+        if (localStorage.getItem('sch_adv_build_stamp') !== EXPORT_BUILD_STAMP) {
+            if (BAKED_CONFIG) localStorage.setItem('sch_adv_config', JSON.stringify(BAKED_CONFIG));
+            if (BAKED_SCHEDULE) localStorage.setItem('sch_adv_schedule', JSON.stringify(BAKED_SCHEDULE));
+            localStorage.setItem('sch_adv_build_stamp', EXPORT_BUILD_STAMP);
+        }
+
+        let siteConfig = JSON.parse(localStorage.getItem('sch_adv_config') || 'null') || { ...DEFAULT_CONFIG };
+        let scheduleData = JSON.parse(localStorage.getItem('sch_adv_schedule') || 'null') || JSON.parse(JSON.stringify(DEFAULT_SCHEDULE));
+        let bookingsData = JSON.parse(localStorage.getItem('sch_adv_bookings') || 'null') || JSON.parse(JSON.stringify(DEFAULT_BOOKINGS));
+        let sheetsWebAppUrl = localStorage.getItem('sch_adv_sheets_url') || HARDCODED_SHEETS_WEBAPP_URL;
+
+        let activeWeekIdx = 0;
+        let selectedSlotId = null;
+        let selectedDuration = '0-15 min';
+        let selectedReason = "I don't understand the summative/formative.";
+        let isTeacherAuthenticated = false;
+        let lastGeneratedVerificationText = '';
+
+        // ==========================================
+        // 2. HEADER, SYNC & STORAGE HELPERS
+        // ==========================================
+        function applyHeaderConfig() {
+            const titleEl = document.getElementById('header-teacher-title');
+            const subEl = document.getElementById('header-room-subtitle');
+            if (titleEl) titleEl.textContent = siteConfig.teacherTitle;
+            if (subEl) subEl.textContent = siteConfig.roomSubtitle;
+        }
+
+        function setSyncBadgeState(state, label) {
+            const pill = document.getElementById('sync-status-pill');
+            const dot = document.getElementById('sync-status-dot');
+            const text = document.getElementById('sync-status-text');
+            if (!pill || !dot || !text) return;
+            text.textContent = label;
+            if (state === 'syncing') {
+                pill.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200';
+                dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping';
+            } else if (state === 'error') {
+                pill.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200';
+                dot.className = 'w-1.5 h-1.5 rounded-full bg-red-500';
+            } else {
+                pill.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200';
+                dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse';
+            }
+        }
+
+        function persistAll() {
+            localStorage.setItem('sch_adv_config', JSON.stringify(siteConfig));
+            localStorage.setItem('sch_adv_schedule', JSON.stringify(scheduleData));
+            localStorage.setItem('sch_adv_bookings', JSON.stringify(bookingsData));
+            updateActivePassesBadge();
+
+            if (sheetsWebAppUrl) {
+                pushStateToGoogleSheets({
+                    action: 'saveState',
+                    config: siteConfig,
+                    schedule: scheduleData,
+                    bookings: bookingsData
+                });
+            }
+        }
+
+        async function pushStateToGoogleSheets(payload) {
+            if (!sheetsWebAppUrl) return false;
+            try {
+                setSyncBadgeState('syncing', 'Syncing...');
+                const res = await fetch(sheetsWebAppUrl, {
+                    method: 'POST',
+                    redirect: 'follow',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                setSyncBadgeState('synced', 'Live Synced');
+                return true;
+            } catch (err) {
+                console.warn('Standard POST blocked by CORS/redirect, retrying via no-cors fallback:', err);
+                try {
+                    await fetch(sheetsWebAppUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify(payload)
+                    });
+                    setSyncBadgeState('synced', 'Live Synced');
+                    return true;
+                } catch (fallbackErr) {
+                    console.error('Google Sheets push failed:', fallbackErr);
+                    setSyncBadgeState('error', 'Offline Cache');
+                    return false;
+                }
+            }
+        }
+
+        async function syncWithGoogleSheets(notify = false) {
+            if (!sheetsWebAppUrl) return false;
+            try {
+                setSyncBadgeState('syncing', 'Refreshing...');
+                const cacheBusterUrl = sheetsWebAppUrl + (sheetsWebAppUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+                const res = await fetch(cacheBusterUrl, {
+                    method: 'GET',
+                    redirect: 'follow'
+                });
+                const text = await res.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (parseErr) {
+                    // Apps Script returned an HTML Google Login/Permission page instead of JSON
+                    throw new Error('AUTH_REQUIRED');
+                }
+
+                if (data && data.ok && !data.empty) {
+                    if (data.config) {
+                        siteConfig = data.config;
+                        localStorage.setItem('sch_adv_config', JSON.stringify(siteConfig));
+                        applyHeaderConfig();
+                    }
+                    if (Array.isArray(data.schedule) && data.schedule.length > 0) {
+                        scheduleData = data.schedule;
+                        localStorage.setItem('sch_adv_schedule', JSON.stringify(scheduleData));
+                    }
+                    if (Array.isArray(data.bookings)) {
+                        bookingsData = data.bookings;
+                        localStorage.setItem('sch_adv_bookings', JSON.stringify(bookingsData));
+                    }
+                    updateActivePassesBadge();
+                    renderWeeklySlotGrid();
+                    if (!document.getElementById('teacher-view').classList.contains('hidden')) {
+                        renderTeacherRoster();
+                    }
+                    refreshSelectedSlotBanner();
+                }
+                setSyncBadgeState('synced', 'Live Synced');
+                if (notify) showToast('Connected & synced with Google Sheets!');
+                return true;
+            } catch (err) {
+                console.error('Google Sheets sync error:', err);
+                setSyncBadgeState('error', 'Check Access');
+                if (notify) {
+                    if (err && err.message === 'AUTH_REQUIRED') {
+                        showToast('Apps Script blocked: Redeploy with "Who has access: Anyone".', true);
+                    } else {
+                        showToast('Could not reach Sheets — verify Web App URL & "Anyone" access.', true);
+                    }
+                }
+                return false;
+            }
+        }
+
+        // ==========================================
+        // 3. WEEKLY SLOT GRID & SELECTION
+        // ==========================================
+        function getDayTypeBadgeHtml(dayType) {
+            if (dayType === 'purple') {
+                return `<span class="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-bold">Purple</span>`;
+            }
+            return `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold">Gold</span>`;
+        }
+
+        function findSlotContext(slotId) {
+            for (const week of scheduleData) {
+                for (const day of week.days) {
+                    const slot = day.slots.find(s => s.id === slotId);
+                    if (slot) return { week, day, slot };
+                }
+            }
+            return null;
+        }
+
+        function getSlotBookings(slotId) {
+            return bookingsData.filter(b => b.slotId === slotId);
+        }
+
+        function selectWeek(weekIdx) {
+            activeWeekIdx = weekIdx;
+            const btn0 = document.getElementById('week-btn-0');
+            const btn1 = document.getElementById('week-btn-1');
+            if (btn0 && btn1) {
+                btn0.className = weekIdx === 0
+                    ? 'px-2.5 py-1 rounded-md bg-white text-schBlue shadow-2xs transition cursor-pointer'
+                    : 'px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition cursor-pointer';
+                btn1.className = weekIdx === 1
+                    ? 'px-2.5 py-1 rounded-md bg-white text-schBlue shadow-2xs transition cursor-pointer'
+                    : 'px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition cursor-pointer';
+            }
+            renderWeeklySlotGrid();
+        }
+
+        function renderWeeklySlotGrid() {
+            const grid = document.getElementById('weekly-slot-grid');
+            if (!grid) return;
+            const week = scheduleData[activeWeekIdx];
+
+            grid.innerHTML = week.days.map(day => {
+                if (day.blocked) {
+                    return `
+                    <div class="rounded-lg border border-slate-200 bg-slate-100/80 p-2.5 flex flex-col justify-between min-h-[128px]">
+                        <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                            <div>
+                                <span class="font-bold text-xs text-slate-600">${day.dayShort}</span>
+                                <span class="text-[11px] text-slate-500 ml-1">${day.dateStr}</span>
+                            </div>
+                            <span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold">Closed</span>
+                        </div>
+                        <div class="my-auto text-center py-3">
+                            <p class="text-xs font-bold text-slate-500">${day.blockReason || 'Unavailable'}</p>
+                        </div>
+                    </div>
+                    `;
+                }
+
+                const slotsHtml = day.slots.map(slot => {
+                    const bookedCount = getSlotBookings(slot.id).length;
+                    const spotsLeft = Math.max(0, slot.capacity - bookedCount);
+                    const isFull = spotsLeft === 0;
+                    const isSelected = selectedSlotId === slot.id;
+
+                    let badgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    let badgeText = `${spotsLeft}/${slot.capacity} left`;
+                    if (isFull) {
+                        badgeClass = 'bg-slate-200 text-slate-600 border-slate-300';
+                        badgeText = 'Full';
+                    } else if (spotsLeft <= 2) {
+                        badgeClass = 'bg-amber-50 text-amber-800 border-amber-200';
+                    }
+
+                    return `
+                    <button type="button" onclick="selectSlot('${slot.id}')" ${isFull ? 'disabled' : ''}
+                        class="slot-btn w-full text-left p-2 rounded-lg border ${isSelected ? 'slot-selected' : 'border-slate-200 bg-white hover:border-schBlue'} disabled:opacity-55 disabled:cursor-not-allowed space-y-1 cursor-pointer">
+                        <div class="flex items-center justify-between gap-1">
+                            <span class="text-[11px] font-bold text-slate-800 leading-tight">${slot.label}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-1 pt-0.5">
+                            <span class="text-[10px] font-mono font-semibold text-schBlue">${slot.time}</span>
+                            <span class="px-1.5 py-0.2 rounded border text-[10px] font-bold ${badgeClass}">${badgeText}</span>
+                        </div>
+                    </button>
+                    `;
+                }).join('');
+
+                return `
+                <div class="rounded-lg border ${day.dayType === 'purple' ? 'border-purple-200/80 bg-purple-50/20' : 'border-amber-200/80 bg-amber-50/20'} p-2.5 space-y-2 flex flex-col">
+                    <div class="flex items-center justify-between border-b border-slate-200/80 pb-1.5">
+                        <div>
+                            <span class="font-bold text-xs text-slate-900">${day.dayShort}</span>
+                            <span class="text-[11px] font-semibold text-slate-500 ml-1">${day.dateStr}</span>
+                        </div>
+                        ${getDayTypeBadgeHtml(day.dayType)}
+                    </div>
+                    <div class="space-y-1.5 flex-1">
+                        ${slotsHtml}
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function selectSlot(slotId) {
+            const ctx = findSlotContext(slotId);
+            if (!ctx || ctx.day.blocked) return;
+            const spotsLeft = ctx.slot.capacity - getSlotBookings(slotId).length;
+            if (spotsLeft <= 0) return;
+
+            selectedSlotId = slotId;
+            renderWeeklySlotGrid();
+            refreshSelectedSlotBanner();
+            resetBookingForm(false);
+            const nameInput = document.getElementById('inp-student-name');
+            if (nameInput) nameInput.focus();
+        }
+
+        function refreshSelectedSlotBanner() {
+            const banner = document.getElementById('selected-slot-banner');
+            if (!banner) return;
+            if (!selectedSlotId) {
+                banner.className = 'text-[11px] font-semibold px-2.5 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-200';
+                banner.textContent = 'Select an open slot above to begin';
+                return;
+            }
+            const ctx = findSlotContext(selectedSlotId);
+            if (!ctx || ctx.day.blocked) {
+                selectedSlotId = null;
+                refreshSelectedSlotBanner();
+                return;
+            }
+            banner.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-schBlueLight text-schBlue border border-blue-200';
+            banner.innerHTML = `<i class="fa-solid fa-calendar-check mr-1"></i>${ctx.day.dayFull}, ${ctx.day.dateStr} • ${ctx.slot.label} (${ctx.slot.time})`;
+        }
+
+        // ==========================================
+        // 4. FORM CHIPS & BOOKING SUBMISSION
+        // ==========================================
+        function selectDurationChip(btn, durationVal) {
+            selectedDuration = durationVal;
+            document.querySelectorAll('.duration-chip').forEach(el => {
+                el.className = 'duration-chip bg-white text-slate-700 hover:bg-slate-50 py-1.5 px-2 rounded-lg border border-slate-300 font-semibold text-center transition cursor-pointer';
+            });
+            btn.className = 'duration-chip reason-chip-active py-1.5 px-2 rounded-lg border border-slate-300 font-semibold text-center transition cursor-pointer';
+        }
+
+        function selectReasonChip(btn, reasonVal) {
+            selectedReason = reasonVal;
+            document.querySelectorAll('.reason-chip').forEach(el => {
+                el.className = 'reason-chip bg-white text-slate-700 hover:bg-slate-50 text-left py-1.5 px-2.5 rounded-lg border border-slate-300 font-semibold transition cursor-pointer';
+            });
+            btn.className = 'reason-chip reason-chip-active text-left py-1.5 px-2.5 rounded-lg border border-slate-300 font-semibold transition cursor-pointer';
+
+            if (reasonVal === 'Something else not listed.') {
+                const noteEl = document.getElementById('inp-student-note');
+                if (noteEl) {
+                    noteEl.focus();
+                    noteEl.placeholder = 'Please tell me what you would like to work on...';
+                }
+            }
+        }
+
+        document.getElementById('booking-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (!selectedSlotId) {
+                showToast('Please select an open time slot first.', true);
+                return;
+            }
+
+            const ctx = findSlotContext(selectedSlotId);
+            if (!ctx || ctx.day.blocked) {
+                showToast('That session is no longer available.', true);
+                return;
+            }
+
+            const spotsLeft = ctx.slot.capacity - getSlotBookings(selectedSlotId).length;
+            if (spotsLeft <= 0) {
+                showToast('Sorry, that time slot just filled up!', true);
+                renderWeeklySlotGrid();
+                return;
+            }
+
+            const studentName = document.getElementById('inp-student-name').value.trim();
+            const studentEmail = document.getElementById('inp-student-email').value.trim();
+            const grade = document.getElementById('inp-student-grade').value;
+            const period = document.getElementById('inp-student-period').value;
+            const note = document.getElementById('inp-student-note').value.trim();
+            const ticketId = 'ADV-' + Math.floor(1000 + Math.random() * 9000);
+
+            const newBooking = {
+                ticketId,
+                slotId: selectedSlotId,
+                studentName,
+                studentEmail,
+                grade,
+                homeroomTeacher: period,
+                duration: selectedDuration,
+                reason: selectedReason,
+                note,
+                arrived: false
+            };
+
+            bookingsData.unshift(newBooking);
+            localStorage.setItem('sch_adv_bookings', JSON.stringify(bookingsData));
+            updateActivePassesBadge();
+            renderWeeklySlotGrid();
+
+            // Build Verification Email summary
+            const subject = `Advisory Ticket Verified [${ticketId}] - ${ctx.day.dayFull}, ${ctx.day.dateStr}`;
+            const emailLines = [
+                `To: ${studentEmail}`,
+                `Subject: ${subject}`,
+                `----------------------------------------`,
+                `Hi ${studentName} (${grade} • ${period}),`,
+                ``,
+                `Your advisory appointment with ${siteConfig.teacherTitle} is confirmed!`,
+                ``,
+                `• Ticket ID: ${ticketId}`,
+                `• Date & Session: ${ctx.day.dayFull}, ${ctx.day.dateStr} — ${ctx.slot.label} (${ctx.slot.time})`,
+                `• Location: ${siteConfig.roomShort}`,
+                `• Estimated Time Needed: ${selectedDuration}`,
+                `• How Can I Help You: ${selectedReason}`,
+                note ? `• Details: ${note}` : null
+            ].filter(line => line !== null).join('\n');
+
+            lastGeneratedVerificationText = emailLines;
+            document.getElementById('verif-to-email').textContent = studentEmail;
+            document.getElementById('verif-ticket-badge').textContent = ticketId;
+            document.getElementById('verif-email-body').textContent = emailLines;
+            document.getElementById('verif-mailto-link').href = `mailto:${encodeURIComponent(studentEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailLines)}`;
+
+            document.getElementById('booking-form').classList.add('hidden');
+            document.getElementById('verification-email-card').classList.remove('hidden');
+
+            if (sheetsWebAppUrl) {
+                pushStateToGoogleSheets({
+                    action: 'createBooking',
+                    booking: newBooking,
+                    sessionSummary: {
+                        teacherTitle: siteConfig.teacherTitle,
+                        roomShort: siteConfig.roomShort,
+                        dayFull: ctx.day.dayFull,
+                        dateStr: ctx.day.dateStr,
+                        slotLabel: ctx.slot.label,
+                        slotTime: ctx.slot.time
+                    }
+                });
+            }
+
+            showToast(`Pass ${ticketId} booked! Verification email generated.`);
+        });
+
+        function copyVerificationEmail() {
+            const temp = document.createElement('textarea');
+            temp.value = lastGeneratedVerificationText;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+            showToast('Verification email copied to clipboard!');
+        }
+
+        function resetBookingForm(clearInputs = true) {
+            document.getElementById('verification-email-card').classList.add('hidden');
+            document.getElementById('booking-form').classList.remove('hidden');
+            if (clearInputs) {
+                document.getElementById('inp-student-name').value = '';
+                document.getElementById('inp-student-email').value = '';
+                document.getElementById('inp-student-note').value = '';
+            }
+        }
+
+        // ==========================================
+        // 5. MY PASSES MODAL & CANCELLATION
+        // ==========================================
+        function updateActivePassesBadge() {
+            const badge = document.getElementById('active-passes-badge');
+            if (badge) badge.textContent = bookingsData.length;
+        }
+
+        function openMyPassesModal() {
+            const list = document.getElementById('my-passes-list');
+            if (bookingsData.length === 0) {
+                list.innerHTML = `<p class="text-xs text-slate-500 text-center py-6">No active advisory passes found.</p>`;
+            } else {
+                list.innerHTML = bookingsData.map(b => {
+                    const ctx = findSlotContext(b.slotId);
+                    const whenText = ctx
+                        ? `${ctx.day.dayFull}, ${ctx.day.dateStr} • ${ctx.slot.label} (${ctx.slot.time})`
+                        : 'Scheduled Session';
+                    return `
+                    <div class="p-3 rounded-lg bg-white border border-slate-200 space-y-1.5 text-xs shadow-2xs">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="font-mono font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-300 text-[11px]">${b.ticketId}</span>
+                            <button onclick="cancelBooking('${b.ticketId}', true)" class="text-[11px] font-bold text-red-600 hover:underline cursor-pointer">
+                                Cancel Pass
+                            </button>
+                        </div>
+                        <p class="font-bold text-slate-900">${b.studentName} <span class="font-normal text-slate-500">(${b.grade} • ${b.homeroomTeacher})</span></p>
+                        <p class="text-[11px] font-semibold text-schBlue">${whenText}</p>
+                        <p class="text-[11px] text-slate-600"><span class="font-semibold">Duration:</span> ${b.duration || '0-15 min'} • <span class="font-semibold">Topic:</span> ${b.reason}</p>
+                    </div>
+                    `;
+                }).join('');
+            }
+            const modal = document.getElementById('my-passes-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeMyPassesModal() {
+            document.getElementById('my-passes-modal').classList.add('hidden');
+            document.getElementById('my-passes-modal').classList.remove('flex');
+        }
+
+        function cancelBooking(ticketId, refreshModal = false) {
+            bookingsData = bookingsData.filter(b => b.ticketId !== ticketId);
+            persistAll();
+            renderWeeklySlotGrid();
+            if (!document.getElementById('teacher-view').classList.contains('hidden')) {
+                renderTeacherRoster();
+            }
+            if (refreshModal) openMyPassesModal();
+            showToast(`Pass ${ticketId} canceled and spot reopened.`);
+        }
+
+        // ==========================================
+        // 6. TEACHER ROSTER & CAPACITY MANAGER (PIN 2451)
+        // ==========================================
+        function requestTeacherMode() {
+            if (isTeacherAuthenticated) {
+                switchViewMode('teacher');
+                return;
+            }
+            document.getElementById('pin-input').value = '';
+            const modal = document.getElementById('pin-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => document.getElementById('pin-input').focus(), 100);
+        }
+
+        function closePinModal() {
+            document.getElementById('pin-modal').classList.add('hidden');
+            document.getElementById('pin-modal').classList.remove('flex');
+        }
+
+        document.getElementById('pin-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const entered = document.getElementById('pin-input').value.trim();
+            if (entered === '2451') {
+                isTeacherAuthenticated = true;
+                document.getElementById('teacher-lock-icon').className = 'fa-solid fa-lock-open text-[10px] text-emerald-600';
+                closePinModal();
+                switchViewMode('teacher');
+                showToast('Teacher Roster unlocked.');
+            } else {
+                showToast('Incorrect Teacher PIN.', true);
+            }
+        });
+
+        function switchViewMode(mode) {
+            const studentView = document.getElementById('student-view');
+            const teacherView = document.getElementById('teacher-view');
+            const tabStudent = document.getElementById('tab-student-btn');
+            const tabTeacher = document.getElementById('tab-teacher-btn');
+
+            if (mode === 'teacher') {
+                studentView.classList.add('hidden');
+                teacherView.classList.remove('hidden');
+                tabTeacher.className = 'px-2.5 py-1.5 rounded-md bg-white text-schBlue shadow-2xs transition cursor-pointer flex items-center gap-1';
+                tabStudent.className = 'px-2.5 py-1.5 rounded-md text-slate-600 hover:text-slate-900 transition cursor-pointer';
+                renderTeacherRoster();
+            } else {
+                teacherView.classList.add('hidden');
+                studentView.classList.remove('hidden');
+                tabStudent.className = 'px-2.5 py-1.5 rounded-md bg-white text-schBlue shadow-2xs transition cursor-pointer';
+                tabTeacher.className = 'px-2.5 py-1.5 rounded-md text-slate-600 hover:text-slate-900 transition cursor-pointer flex items-center gap-1';
+                renderWeeklySlotGrid();
+            }
+        }
+
+        function renderTeacherRoster() {
+            const week = scheduleData[activeWeekIdx];
+            const container = document.getElementById('teacher-roster-container');
+
+            renderTeacherSlotEditor();
+
+            let totalWeekBookings = 0;
+            week.days.forEach(d => d.slots.forEach(s => {
+                totalWeekBookings += getSlotBookings(s.id).length;
+            }));
+            document.getElementById('roster-stats-summary').textContent = `${totalWeekBookings} Booked Student${totalWeekBookings === 1 ? '' : 's'} This Week`;
+
+            container.innerHTML = week.days.map(day => {
+                const dayBlockBtnText = day.blocked ? 'Unblock Day' : 'Block Day';
+                const dayBlockBtnStyle = day.blocked
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100';
+
+                if (day.blocked) {
+                    return `
+                    <div class="sch-card p-3 bg-slate-100/90 flex items-center justify-between gap-2">
+                        <div>
+                            <span class="font-bold text-xs text-slate-800">${day.dayFull}, ${day.dateStr}</span>
+                            <span class="ml-2 px-2 py-0.5 rounded bg-red-100 text-red-800 text-[10px] font-bold">Unavailable</span>
+                        </div>
+                        <button onclick="toggleBlockDay('${day.id}')" class="px-2.5 py-1 rounded border text-xs font-semibold ${dayBlockBtnStyle} cursor-pointer">
+                            ${dayBlockBtnText}
+                        </button>
+                    </div>
+                    `;
+                }
+
+                const slotsRosterHtml = day.slots.map(slot => {
+                    const slotBookings = getSlotBookings(slot.id);
+                    const spotsLeft = Math.max(0, slot.capacity - slotBookings.length);
+
+                    const studentRows = slotBookings.length === 0
+                        ? `<p class="text-[11px] text-slate-400 italic py-1.5 px-2">No students booked for this session yet.</p>`
+                        : slotBookings.map(b => `
+                            <div class="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border ${b.arrived ? 'bg-emerald-50/70 border-emerald-200' : 'bg-white border-slate-200'} text-xs">
+                                <div class="space-y-0.5">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <span class="font-mono font-bold text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700">${b.ticketId}</span>
+                                        <span class="font-bold text-slate-900">${b.studentName}</span>
+                                        <span class="text-[11px] text-slate-500">(${b.grade} • ${b.homeroomTeacher})</span>
+                                        ${b.studentEmail ? `<span class="text-[11px] text-schBlue font-medium">&lt;${b.studentEmail}&gt;</span>` : ''}
+                                        <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-schBlueLight text-schBlue">${b.duration || '0-15 min'}</span>
+                                    </div>
+                                    <p class="text-[11px] text-slate-600">
+                                        <span class="font-semibold text-slate-700">${b.reason}</span>
+                                        ${b.note ? ` — <span class="italic text-slate-500">"${b.note}"</span>` : ''}
+                                    </p>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <button onclick="toggleStudentArrived('${b.ticketId}')"
+                                        class="px-2 py-1 rounded text-[11px] font-bold border transition cursor-pointer ${b.arrived ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}">
+                                        <i class="fa-solid ${b.arrived ? 'fa-check' : 'fa-user-check'} mr-1"></i>${b.arrived ? 'Arrived' : 'Check In'}
+                                    </button>
+                                    <button onclick="cancelBooking('${b.ticketId}', false)" title="Remove Booking"
+                                        class="px-2 py-1 rounded text-[11px] font-semibold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 cursor-pointer">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('');
+
+                    return `
+                    <div class="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 space-y-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <span class="font-bold text-xs text-slate-900">${slot.label}</span>
+                                <span class="ml-1.5 text-[11px] font-mono font-semibold text-schBlue">${slot.time}</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="text-[11px] font-semibold text-slate-600">${slotBookings.length}/${slot.capacity} Booked (${spotsLeft} open)</span>
+                                <div class="inline-flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+                                    <button onclick="adjustSlotCapacity('${slot.id}', -1)" title="Decrease Max Capacity" class="px-2 py-0.5 hover:bg-slate-100 font-bold text-slate-700 cursor-pointer">-</button>
+                                    <span class="px-2 py-0.5 text-[11px] font-bold text-slate-800 border-x border-slate-200">Cap: ${slot.capacity}</span>
+                                    <button onclick="adjustSlotCapacity('${slot.id}', 1)" title="Increase Max Capacity" class="px-2 py-0.5 hover:bg-slate-100 font-bold text-slate-700 cursor-pointer">+</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="space-y-1.5">
+                            ${studentRows}
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+
+                return `
+                <div class="sch-card p-3 space-y-2.5">
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-xs sm:text-sm text-slate-900">${day.dayFull}, ${day.dateStr}</span>
+                            ${getDayTypeBadgeHtml(day.dayType)}
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <div class="inline-flex rounded-md bg-slate-100 p-0.5 border border-slate-200 text-[11px] font-bold">
+                                <button type="button" onclick="setDayBlockType('${day.id}', 'gold')"
+                                    class="px-2 py-0.5 rounded transition cursor-pointer ${day.dayType === 'gold' ? 'bg-amber-400 text-slate-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}">
+                                    Gold Day
+                                </button>
+                                <button type="button" onclick="setDayBlockType('${day.id}', 'purple')"
+                                    class="px-2 py-0.5 rounded transition cursor-pointer ${day.dayType === 'purple' ? 'bg-purple-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}">
+                                    Purple Day
+                                </button>
+                            </div>
+                            <button onclick="toggleBlockDay('${day.id}')" class="px-2.5 py-1 rounded border text-xs font-semibold ${dayBlockBtnStyle} cursor-pointer">
+                                ${dayBlockBtnText}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        ${slotsRosterHtml}
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function renderTeacherSlotEditor() {
+            const week = scheduleData[activeWeekIdx];
+            const editorGrid = document.getElementById('teacher-slot-editor-grid');
+            if (!editorGrid) return;
+
+            editorGrid.innerHTML = week.days.map(day => {
+                if (day.blocked) {
+                    return `
+                    <div class="rounded-lg border border-slate-200 bg-slate-100/80 p-2 flex flex-col justify-between">
+                        <div class="flex items-center justify-between border-b border-slate-200 pb-1">
+                            <span class="font-bold text-xs text-slate-600">${day.dayShort} (${day.dateStr})</span>
+                            <span class="text-[10px] font-bold text-slate-500">Unavailable</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 italic my-auto py-4 text-center">Day blocked</p>
+                    </div>
+                    `;
+                }
+
+                const advSlot = day.slots.find(s => s.id.endsWith('-adv'));
+                const isAfternoonAdv = advSlot && advSlot.time.includes('PM');
+                const swapBtnHtml = (day.dayType === 'gold' && advSlot) ? `
+                    <button type="button" onclick="toggleDayAdvisorySwap('${day.id}')"
+                        class="w-full py-1 px-2 rounded text-[10px] font-bold border transition cursor-pointer flex items-center justify-center gap-1 ${isAfternoonAdv ? 'bg-schBlueLight text-schBlue border-blue-200 hover:bg-blue-100' : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'}">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                        <span>${isAfternoonAdv ? 'Restore Period 2 (8:30 AM)' : 'Swap to Period 8 (PM)'}</span>
+                    </button>
+                ` : '';
+
+                const inputsHtml = day.slots.map(slot => `
+                    <div class="p-1.5 rounded bg-slate-50 border border-slate-200/90 space-y-1">
+                        <input type="text" value="${slot.label.replace(/"/g, '&quot;')}"
+                            onchange="updateSlotField('${slot.id}', 'label', this.value)"
+                            aria-label="Session title"
+                            class="w-full px-1.5 py-0.5 rounded border border-slate-200 bg-white text-[11px] font-semibold text-slate-800 focus:border-schBlue outline-none">
+                        <input type="text" value="${slot.time.replace(/"/g, '&quot;')}"
+                            onchange="updateSlotField('${slot.id}', 'time', this.value)"
+                            aria-label="Session hours"
+                            class="w-full px-1.5 py-0.5 rounded border border-slate-200 bg-white text-[11px] font-mono text-schBlue font-bold focus:border-schBlue outline-none">
+                    </div>
+                `).join('');
+
+                return `
+                <div class="rounded-lg border ${day.dayType === 'purple' ? 'border-purple-200 bg-purple-50/20' : 'border-amber-200 bg-amber-50/20'} p-2 space-y-1.5 flex flex-col justify-between">
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-1">
+                            <div>
+                                <span class="font-bold text-xs text-slate-800">${day.dayShort}</span>
+                                <span class="text-[11px] font-semibold text-slate-500 ml-1">${day.dateStr}</span>
+                            </div>
+                            ${getDayTypeBadgeHtml(day.dayType)}
+                        </div>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button type="button" onclick="setDayBlockType('${day.id}', 'gold')"
+                                class="py-0.5 px-1.5 rounded text-[10px] font-bold border transition cursor-pointer ${day.dayType === 'gold' ? 'bg-amber-400 text-slate-950 border-amber-500' : 'bg-white text-slate-600 border-slate-200 hover:bg-amber-50'}">
+                                Gold
+                            </button>
+                            <button type="button" onclick="setDayBlockType('${day.id}', 'purple')"
+                                class="py-0.5 px-1.5 rounded text-[10px] font-bold border transition cursor-pointer ${day.dayType === 'purple' ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-purple-50'}">
+                                Purple
+                            </button>
+                        </div>
+                        ${swapBtnHtml}
+                        <div class="space-y-1.5">
+                            ${inputsHtml}
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function setDayBlockType(dayId, newType) {
+            const week = scheduleData[activeWeekIdx];
+            const day = week.days.find(d => d.id === dayId);
+            if (!day || day.dayType === newType) return;
+
+            day.dayType = newType;
+            day.slots = buildSlotsForDayType(day.id, newType);
+
+            persistAll();
+            renderWeeklySlotGrid();
+            renderTeacherRoster();
+            refreshSelectedSlotBanner();
+            showToast(newType === 'gold'
+                ? `${day.dayFull} set to Gold Day (Advisory 8:30 AM – 9:30 AM).`
+                : `${day.dayFull} set to Purple Day (Morning Drop-In & After-School Office Hours).`);
+        }
+
+        function applyWeekBlockPattern() {
+            const week = scheduleData[activeWeekIdx];
+            // Toggle whether Monday starts as Gold or Purple so alternating patterns are 1-click
+            const firstOpenDay = week.days.find(d => !d.blocked);
+            const startWithPurple = firstOpenDay && firstOpenDay.dayType === 'gold';
+
+            week.days.forEach((day, idx) => {
+                const nextType = startWithPurple
+                    ? (idx % 2 === 0 ? 'purple' : 'gold')
+                    : (idx % 2 === 0 ? 'gold' : 'purple');
+                day.dayType = nextType;
+                if (!day.blocked) {
+                    day.slots = buildSlotsForDayType(day.id, nextType);
+                }
+            });
+
+            persistAll();
+            renderWeeklySlotGrid();
+            renderTeacherRoster();
+            refreshSelectedSlotBanner();
+            showToast(startWithPurple
+                ? 'Week set to Purple / Gold / Purple / Gold / Purple.'
+                : 'Week set to Gold / Purple / Gold / Purple / Gold.');
+        }
+
+        function updateSlotField(slotId, field, rawValue) {
+            const val = rawValue.trim();
+            if (!val) {
+                renderTeacherSlotEditor();
+                return;
+            }
+            const ctx = findSlotContext(slotId);
+            if (!ctx) return;
+            ctx.slot[field] = val;
+            persistAll();
+            renderWeeklySlotGrid();
+            renderTeacherRoster();
+            refreshSelectedSlotBanner();
+            showToast('Session schedule updated!');
+        }
+
+        function toggleDayAdvisorySwap(dayId) {
+            const week = scheduleData[activeWeekIdx];
+            const day = week.days.find(d => d.id === dayId);
+            if (!day) return;
+            const advSlot = day.slots.find(s => s.id.endsWith('-adv'));
+            if (!advSlot) return;
+
+            const isCurrentlyAfternoon = advSlot.time.includes('PM');
+            if (isCurrentlyAfternoon) {
+                advSlot.label = 'Advisory Block (Period 2)';
+                advSlot.time = '8:30 AM – 9:30 AM';
+            } else {
+                advSlot.label = 'Advisory (Period 8 Swap)';
+                advSlot.time = '1:50 PM – 2:45 PM';
+            }
+
+            persistAll();
+            renderWeeklySlotGrid();
+            renderTeacherRoster();
+            refreshSelectedSlotBanner();
+            showToast(`${day.dayFull} Advisory set to ${advSlot.time}`);
+        }
+
+        function applyWeekAdvisoryPreset(mode) {
+            const week = scheduleData[activeWeekIdx];
+            week.days.forEach(day => {
+                if (day.blocked || day.dayType !== 'gold') return;
+                const advSlot = day.slots.find(s => s.id.endsWith('-adv'));
+                if (!advSlot) return;
+                if (mode === 'afternoon') {
+                    advSlot.label = 'Advisory (Period 8 Swap)';
+                    advSlot.time = '1:50 PM – 2:45 PM';
+                } else {
+                    advSlot.label = 'Advisory Block (Period 2)';
+                    advSlot.time = '8:30 AM – 9:30 AM';
+                }
+            });
+            persistAll();
+            renderWeeklySlotGrid();
+            renderTeacherRoster();
+            refreshSelectedSlotBanner();
+            showToast(mode === 'afternoon'
+                ? 'All Gold Day Advisory blocks switched to Period 8 Afternoon (1:50 PM – 2:45 PM).'
+                : 'All Gold Day Advisory blocks restored to Period 2 Morning (8:30 AM – 9:30 AM).');
+        }
+
+        function adjustSlotCapacity(slotId, delta) {
+            const ctx = findSlotContext(slotId);
+            if (!ctx) return;
+            const currentBookings = getSlotBookings(slotId).length;
+            const nextCap = Math.max(currentBookings, Math.min(25, ctx.slot.capacity + delta));
+            ctx.slot.capacity = nextCap;
+            persistAll();
+            renderTeacherRoster();
+        }
+
+        function toggleStudentArrived(ticketId) {
+            const booking = bookingsData.find(b => b.ticketId === ticketId);
+            if (!booking) return;
+            booking.arrived = !booking.arrived;
+            persistAll();
+            renderTeacherRoster();
+        }
+
+        function toggleBlockDay(dayId) {
+            const week = scheduleData[activeWeekIdx];
+            const day = week.days.find(d => d.id === dayId);
+            if (!day) return;
+            day.blocked = !day.blocked;
+            if (day.blocked) {
+                day.blockReason = 'Unavailable';
+            } else if (!day.slots || day.slots.length === 0) {
+                day.slots = buildSlotsForDayType(day.id, day.dayType || 'gold');
+            }
+            persistAll();
+            renderWeeklySlotGrid();
+            renderTeacherRoster();
+            refreshSelectedSlotBanner();
+            showToast(day.blocked ? `${day.dayFull} marked Unavailable.` : `${day.dayFull} reopened.`);
+        }
+
+        // ==========================================
+        // 7. EMBED CODE & HEADER SETTINGS MODALS
+        // ==========================================
+        function openEmbedModal() {
+            const modal = document.getElementById('embed-code-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeEmbedModal() {
+            document.getElementById('embed-code-modal').classList.add('hidden');
+            document.getElementById('embed-code-modal').classList.remove('flex');
+        }
+
+        function copySchoologySnippet() {
+            const textarea = document.getElementById('schoology-iframe-snippet');
+            textarea.select();
+            document.execCommand('copy');
+            showToast('Schoology <iframe> snippet copied to clipboard!');
+        }
+
+        function openRoomSettingsModal() {
+            document.getElementById('set-teacher-title').value = siteConfig.teacherTitle;
+            document.getElementById('set-room-subtitle').value = siteConfig.roomSubtitle;
+            document.getElementById('set-room-short').value = siteConfig.roomShort;
+            const modal = document.getElementById('room-settings-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeRoomSettingsModal() {
+            document.getElementById('room-settings-modal').classList.add('hidden');
+            document.getElementById('room-settings-modal').classList.remove('flex');
+        }
+
+        // ==========================================
+        // 8. GOOGLE SHEETS & APPS SCRIPT WIZARD
+        // ==========================================
+        const APPS_SCRIPT_TEMPLATE = `// ============================================================================
+// GOOGLE APPS SCRIPT BACKEND FOR LIVE ADVISORY TICKET BOOKING WIDGET
+// Paste into Extensions -> Apps Script in your Google Sheet, then Deploy as Web App
+// ============================================================================
+function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const stateSheet = getOrCreateSheet_(ss, 'AppState');
+  const rawJson = stateSheet.getRange('A1').getValue();
+  if (!rawJson) {
+    return jsonResponse_({ ok: true, empty: true });
+  }
+  const parsed = JSON.parse(rawJson);
+  return jsonResponse_({
+    ok: true,
+    config: parsed.config || null,
+    schedule: parsed.schedule || [],
+    bookings: parsed.bookings || []
+  });
+}
+
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const payload = JSON.parse(e.postData.contents);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const stateSheet = getOrCreateSheet_(ss, 'AppState');
+    const bookingsSheet = getOrCreateSheet_(ss, 'BookingsLog');
+
+    if (bookingsSheet.getLastRow() === 0) {
+      bookingsSheet.appendRow([
+        'Timestamp', 'Ticket ID', 'Student Name', 'Student Email',
+        'Grade', 'Period', 'Date & Session', 'Duration', 'Help Topic', 'Notes', 'Arrived'
+      ]);
+    }
+
+    const rawJson = stateSheet.getRange('A1').getValue();
+    let state = rawJson ? JSON.parse(rawJson) : { config: null, schedule: [], bookings: [] };
+
+    if (payload.action === 'saveState') {
+      state.config = payload.config;
+      state.schedule = payload.schedule;
+      state.bookings = payload.bookings;
+      stateSheet.getRange('A1').setValue(JSON.stringify(state));
+      syncBookingsLogSheet_(bookingsSheet, state.bookings);
+      return jsonResponse_({ ok: true });
+    }
+
+    if (payload.action === 'createBooking') {
+      const b = payload.booking;
+      const s = payload.sessionSummary || {};
+      state.bookings = [b].concat(state.bookings || []);
+      stateSheet.getRange('A1').setValue(JSON.stringify(state));
+
+      bookingsSheet.appendRow([
+        new Date(),
+        b.ticketId,
+        b.studentName,
+        b.studentEmail,
+        b.grade,
+        b.homeroomTeacher,
+        (s.dayFull || '') + ', ' + (s.dateStr || '') + ' (' + (s.slotTime || '') + ')',
+        b.duration,
+        b.reason,
+        b.note || '',
+        b.arrived ? 'Yes' : 'No'
+      ]);
+
+      // Automatically send real verification email from your school Gmail
+      if (b.studentEmail && b.studentEmail.indexOf('@') > -1) {
+        const subject = 'Advisory Ticket Verified [' + b.ticketId + '] - ' + (s.dayFull || '') + ', ' + (s.dateStr || '');
+        const body = [
+          'Hi ' + b.studentName + ' (' + b.grade + ' • ' + b.homeroomTeacher + '),',
+          '',
+          'Your advisory appointment with ' + (s.teacherTitle || 'your teacher') + ' has been confirmed!',
+          '',
+          'Ticket ID: ' + b.ticketId,
+          'Date & Session: ' + (s.dayFull || '') + ', ' + (s.dateStr || '') + ' — ' + (s.slotLabel || '') + ' (' + (s.slotTime || '') + ')',
+          'Location: ' + (s.roomShort || ''),
+          'Estimated Time Needed: ' + b.duration,
+          'How Can I Help You: ' + b.reason,
+          b.note ? 'Details: ' + b.note : ''
+        ].filter(Boolean).join('\\n');
+
+        MailApp.sendEmail(b.studentEmail, subject, body);
+      }
+
+      return jsonResponse_({ ok: true });
+    }
+
+    return jsonResponse_({ ok: false, error: 'Unknown action' });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getOrCreateSheet_(ss, name) {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+  return sheet;
+}
+
+function syncBookingsLogSheet_(sheet, bookings) {
+  sheet.clearContents();
+  sheet.appendRow([
+    'Synced At', 'Ticket ID', 'Student Name', 'Student Email',
+    'Grade', 'Period', 'Slot ID', 'Duration', 'Help Topic', 'Notes', 'Arrived'
+  ]);
+  (bookings || []).forEach(function(b) {
+    sheet.appendRow([
+      new Date(), b.ticketId, b.studentName, b.studentEmail || '',
+      b.grade, b.homeroomTeacher, b.slotId, b.duration || '', b.reason, b.note || '', b.arrived ? 'Yes' : 'No'
+    ]);
+  });
+}
+
+function jsonResponse_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
+
+        function openSheetsSyncModal() {
+            document.getElementById('apps-script-code-box').value = APPS_SCRIPT_TEMPLATE;
+            document.getElementById('inp-sheets-webhook-url').value = sheetsWebAppUrl || '';
+            updateSheetsModalStatusLabel();
+            const modal = document.getElementById('sheets-sync-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeSheetsSyncModal() {
+            document.getElementById('sheets-sync-modal').classList.add('hidden');
+            document.getElementById('sheets-sync-modal').classList.remove('flex');
+        }
+
+        function updateSheetsModalStatusLabel() {
+            const label = document.getElementById('sheets-connection-status');
+            if (!label) return;
+            if (sheetsWebAppUrl) {
+                label.textContent = 'Status: Connected to Google Sheets Web App';
+                label.className = 'text-[11px] font-bold text-emerald-700';
+            } else {
+                label.textContent = 'Status: Not connected (using browser storage)';
+                label.className = 'text-[11px] font-semibold text-slate-500';
+            }
+        }
+
+        function copyAppsScriptCode() {
+            const textarea = document.getElementById('apps-script-code-box');
+            textarea.select();
+            document.execCommand('copy');
+            showToast('Google Apps Script copied to clipboard!');
+        }
+
+        document.getElementById('sheets-url-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const urlVal = document.getElementById('inp-sheets-webhook-url').value.trim();
+            if (!urlVal) {
+                showToast('Please paste your Google Apps Script Web App URL.', true);
+                return;
+            }
+            if (!urlVal.includes('script.google.com/macros/s/') || !urlVal.endsWith('/exec')) {
+                showToast('URL must end in /exec (copy the Web app URL, not the editor link).', true);
+                return;
+            }
+
+            const btn = document.getElementById('save-sheets-btn');
+            const origText = btn.textContent;
+            btn.textContent = 'Connecting...';
+            btn.disabled = true;
+
+            sheetsWebAppUrl = urlVal;
+            localStorage.setItem('sch_adv_sheets_url', sheetsWebAppUrl);
+            updateSheetsModalStatusLabel();
+
+            // First test GET reachability so we catch school-domain login redirects immediately
+            const reachable = await syncWithGoogleSheets(true);
+            if (reachable) {
+                await pushStateToGoogleSheets({
+                    action: 'saveState',
+                    config: siteConfig,
+                    schedule: scheduleData,
+                    bookings: bookingsData
+                });
+                closeSheetsSyncModal();
+            }
+
+            btn.textContent = origText;
+            btn.disabled = false;
+        });
+
+        function disconnectGoogleSheets() {
+            sheetsWebAppUrl = '';
+            localStorage.removeItem('sch_adv_sheets_url');
+            document.getElementById('inp-sheets-webhook-url').value = '';
+            updateSheetsModalStatusLabel();
+            setSyncBadgeState('local', 'Booking Open');
+            showToast('Disconnected Google Sheets sync.');
+        }
+
+        document.getElementById('room-settings-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            siteConfig.teacherTitle = document.getElementById('set-teacher-title').value.trim();
+            siteConfig.roomSubtitle = document.getElementById('set-room-subtitle').value.trim();
+            siteConfig.roomShort = document.getElementById('set-room-short').value.trim();
+            persistAll();
+            applyHeaderConfig();
+            closeRoomSettingsModal();
+            showToast('Header & room info updated!');
+        });
+
+        function resetAllDemoData() {
+            localStorage.removeItem('sch_adv_config');
+            localStorage.removeItem('sch_adv_schedule');
+            localStorage.removeItem('sch_adv_bookings');
+            siteConfig = { ...DEFAULT_CONFIG };
+            scheduleData = JSON.parse(JSON.stringify(DEFAULT_SCHEDULE));
+            bookingsData = JSON.parse(JSON.stringify(DEFAULT_BOOKINGS));
+            selectedSlotId = null;
+            applyHeaderConfig();
+            updateActivePassesBadge();
+            renderWeeklySlotGrid();
+            renderTeacherRoster();
+            showToast('Demo data reset to defaults.');
+        }
+
+        // ==========================================
+        // 9. ONE-CLICK EXPORT UPDATED HTML (OPTION B)
+        // ==========================================
+        function buildBakedHtmlSource() {
+            // Reconstruct a clean single-file HTML snapshot with current teacher config & schedule baked in
+            const cloneDoc = document.documentElement.cloneNode(true);
+
+            // Reset runtime UI states in the cloned DOM so students always land on the clean Student Booking view
+            const studentView = cloneDoc.querySelector('#student-view');
+            const teacherView = cloneDoc.querySelector('#teacher-view');
+            if (studentView) studentView.classList.remove('hidden');
+            if (teacherView) teacherView.classList.add('hidden');
+
+            const tabStudent = cloneDoc.querySelector('#tab-student-btn');
+            const tabTeacher = cloneDoc.querySelector('#tab-teacher-btn');
+            if (tabStudent) tabStudent.className = 'px-2.5 py-1.5 rounded-md bg-white text-schBlue shadow-2xs transition cursor-pointer';
+            if (tabTeacher) tabTeacher.className = 'px-2.5 py-1.5 rounded-md text-slate-600 hover:text-slate-900 transition cursor-pointer flex items-center gap-1';
+
+            const lockIcon = cloneDoc.querySelector('#teacher-lock-icon');
+            if (lockIcon) lockIcon.className = 'fa-solid fa-lock text-[10px]';
+
+            // Hide all modals in the exported snapshot
+            ['#pin-modal', '#my-passes-modal', '#embed-code-modal', '#room-settings-modal', '#sheets-sync-modal', '#export-html-modal'].forEach(sel => {
+                const m = cloneDoc.querySelector(sel);
+                if (m) {
+                    m.classList.add('hidden');
+                    m.classList.remove('flex');
+                }
+            });
+
+            // Clear dynamic container contents before serialization (they render cleanly on DOMContentLoaded)
+            ['#weekly-slot-grid', '#teacher-slot-editor-grid', '#teacher-roster-container', '#my-passes-list'].forEach(sel => {
+                const el = cloneDoc.querySelector(sel);
+                if (el) el.innerHTML = '';
+            });
+            const exportBox = cloneDoc.querySelector('#exported-html-output');
+            if (exportBox) exportBox.value = '';
+            const scriptBox = cloneDoc.querySelector('#apps-script-code-box');
+            if (scriptBox) scriptBox.value = '';
+
+            // Update header text directly in static markup as well
+            const hdrTitle = cloneDoc.querySelector('#header-teacher-title');
+            const hdrSub = cloneDoc.querySelector('#header-room-subtitle');
+            if (hdrTitle) hdrTitle.textContent = siteConfig.teacherTitle;
+            if (hdrSub) hdrSub.textContent = siteConfig.roomSubtitle;
+
+            let htmlStr = '<!DOCTYPE html>\n' + cloneDoc.outerHTML;
+
+            // Inject baked config & schedule constants and a fresh build stamp
+            const bakedBlock = [
+                '/* BAKED_DEFAULTS_START */',
+                '        const BAKED_CONFIG = ' + JSON.stringify(siteConfig) + ';',
+                '        const BAKED_SCHEDULE = ' + JSON.stringify(scheduleData) + ';',
+                '        /* BAKED_DEFAULTS_END */'
+            ].join('\n');
+
+            htmlStr = htmlStr.replace(/\/\* BAKED_DEFAULTS_START \*\/[\s\S]*?\/\* BAKED_DEFAULTS_END \*\//, bakedBlock);
+            htmlStr = htmlStr.replace(/const EXPORT_BUILD_STAMP = '[^']*';/, "const EXPORT_BUILD_STAMP = 'build-" + Date.now() + "';");
+
+            return htmlStr;
+        }
+
+        function openExportHtmlModal() {
+            const outputBox = document.getElementById('exported-html-output');
+            outputBox.value = buildBakedHtmlSource();
+            const modal = document.getElementById('export-html-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeExportHtmlModal() {
+            document.getElementById('export-html-modal').classList.add('hidden');
+            document.getElementById('export-html-modal').classList.remove('flex');
+        }
+
+        function copyExportedHtml() {
+            const outputBox = document.getElementById('exported-html-output');
+            outputBox.select();
+            document.execCommand('copy');
+            showToast('Updated HTML copied! Paste into your Google Site Embed box.');
+        }
+
+        function downloadExportedHtml() {
+            const htmlContent = document.getElementById('exported-html-output').value || buildBakedHtmlSource();
+            const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'index.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Downloaded updated index.html!');
+        }
+
+        // Toast Helper (No alert() used)
+        let toastTimer;
+        function showToast(msg, isWarning = false) {
+            const box = document.getElementById('toast-box');
+            const text = document.getElementById('toast-text');
+            const icon = document.getElementById('toast-icon');
+            text.textContent = msg;
+            icon.className = isWarning
+                ? 'fa-solid fa-triangle-exclamation text-amber-400'
+                : 'fa-solid fa-circle-check text-emerald-400';
+
+            box.classList.remove('translate-y-16', 'opacity-0');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                box.classList.add('translate-y-16', 'opacity-0');
+            }, 3000);
+        }
+
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', () => {
+            applyHeaderConfig();
+            updateActivePassesBadge();
+            renderWeeklySlotGrid();
+            if (sheetsWebAppUrl) {
+                syncWithGoogleSheets(false);
+            }
+        });
+    </script>
+
+
+      <script>
+        (function() {
+          // The root element's background fills the whole page. As in CSS,
+          // the body's background is used when the root element has none.
+          function getPageBackgroundColor() {
+            var docStyle = window.getComputedStyle(document.documentElement);
+            var color = docStyle.backgroundColor;
+            if ((color === 'rgba(0, 0, 0, 0)' || color === 'transparent') &&
+                docStyle.backgroundImage === 'none' && document.body) {
+              color = window.getComputedStyle(document.body).backgroundColor;
+            }
+            return color || '';
+          }
+
+          var lastReportedColor = '';
+          function reportBackgroundColor() {
+            try {
+              var color = getPageBackgroundColor();
+              if (color === lastReportedColor) return;
+              lastReportedColor = color;
+              window.parent.postMessage({
+                type: 'ATARI_CODE_EMBED_BACKGROUND_COLOR',
+                backgroundColor: color
+              }, '*');
+            } catch (e) {}
+          }
+
+          // The page background usually changes through an attribute on html
+          // or body (for example a theme class), a style sheet in head, or the
+          // system color scheme.
+          if (typeof MutationObserver !== 'undefined') {
+            var observer = new MutationObserver(reportBackgroundColor);
+            observer.observe(document.documentElement, {attributes: true});
+            if (document.body) {
+              observer.observe(document.body, {attributes: true});
+            }
+            if (document.head) {
+              observer.observe(document.head, {
+                attributes: true,
+                childList: true,
+                subtree: true,
+                characterData: true
+              });
+            }
+          }
+          var colorSchemeQuery =
+              window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+          if (colorSchemeQuery && colorSchemeQuery.addEventListener) {
+            colorSchemeQuery.addEventListener('change', reportBackgroundColor);
+          }
+          window.addEventListener('load', reportBackgroundColor);
+          window.addEventListener('transitionend', reportBackgroundColor);
+          window.addEventListener('animationend', reportBackgroundColor);
+          reportBackgroundColor();
+        })();
+      </script>
+    </body></html>
